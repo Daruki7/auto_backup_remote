@@ -4,6 +4,7 @@ import {
   OnModuleInit,
   OnModuleDestroy,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import {
   Client,
@@ -11,7 +12,6 @@ import {
   EmbedBuilder,
   TextChannel,
 } from 'discord.js';
-import { backupConfig } from '../../../config/backup.config';
 
 /**
  * Discord Notification Interface
@@ -41,12 +41,14 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
   private discordClient: Client | null = null;
   private isClientReady: boolean = false;
 
+  constructor(private readonly configService: ConfigService) {}
+
   /**
    * Initialize Discord client if bot token is provided
    */
   async onModuleInit() {
-    const botToken = backupConfig.discord.botToken;
-    const channelId = backupConfig.discord.channelId;
+    const botToken = this.configService.get<string>('discord.botToken');
+    const channelId = this.configService.get<string>('discord.channelId');
 
     if (botToken && channelId) {
       this.logger.log('Initializing Discord.js client with bot token...');
@@ -78,7 +80,7 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn('Falling back to webhook method if available');
         this.discordClient = null;
       }
-    } else if (backupConfig.discord.defaultWebhookUrl) {
+    } else if (this.configService.get<string>('discord.webhookUrl')) {
       this.logger.log('Discord webhook method configured');
     } else {
       this.logger.warn(
@@ -118,7 +120,7 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
 
       // Method 2: Fallback to webhook
       const finalWebhookUrl =
-        webhookUrl || backupConfig.discord.defaultWebhookUrl;
+        webhookUrl || this.configService.get<string>('discord.webhookUrl');
 
       if (finalWebhookUrl) {
         await this.sendViaWebhook(notification, finalWebhookUrl);
@@ -145,7 +147,7 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
   private async sendViaBotToken(
     notification: DiscordNotification,
   ): Promise<void> {
-    const channelId = backupConfig.discord.channelId;
+    const channelId = this.configService.get<string>('discord.channelId');
 
     if (!channelId) {
       throw new Error('DISCORD_CHANNEL_ID not configured');
@@ -218,8 +220,9 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
       // Send to Discord webhook
       await axios.post(webhookUrl, {
         embeds: [embed],
-        username: backupConfig.discord.botUsername || 'Backup Bot',
-        avatar_url: backupConfig.discord.botAvatarUrl,
+        username:
+          this.configService.get<string>('discord.botUsername') || 'Backup Bot',
+        avatar_url: this.configService.get<string>('discord.botAvatarUrl'),
       });
 
       this.logger.log(
@@ -382,9 +385,11 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
    */
   isEnabled(): boolean {
     const hasBotToken =
-      !!backupConfig.discord.botToken && !!backupConfig.discord.channelId;
-    const hasWebhook = !!backupConfig.discord.defaultWebhookUrl;
-    return backupConfig.discord.enabled && (hasBotToken || hasWebhook);
+      !!this.configService.get<string>('discord.botToken') &&
+      !!this.configService.get<string>('discord.channelId');
+    const hasWebhook = !!this.configService.get<string>('discord.webhookUrl');
+    const enabled = this.configService.get<boolean>('discord.enabled');
+    return enabled && (hasBotToken || hasWebhook);
   }
 
   /**
@@ -395,7 +400,7 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
     if (this.discordClient && this.isClientReady) {
       return 'bot';
     }
-    if (backupConfig.discord.defaultWebhookUrl) {
+    if (this.configService.get<string>('discord.webhookUrl')) {
       return 'webhook';
     }
     return 'none';
@@ -406,6 +411,6 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
    * @returns Webhook URL or undefined
    */
   getDefaultWebhookUrl(): string | undefined {
-    return backupConfig.discord.defaultWebhookUrl;
+    return this.configService.get<string>('discord.webhookUrl');
   }
 }

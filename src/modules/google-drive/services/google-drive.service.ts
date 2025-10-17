@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
 import * as fs from 'fs';
 import * as path from 'path';
-import { backupConfig } from '../../../config/backup.config';
 
 /**
  * Google Drive Service
@@ -18,6 +18,8 @@ import { backupConfig } from '../../../config/backup.config';
 @Injectable()
 export class GoogleDriveService {
   private readonly logger = new Logger(GoogleDriveService.name);
+
+  constructor(private readonly configService: ConfigService) {}
 
   /**
    * Upload file to Google Drive
@@ -36,11 +38,13 @@ export class GoogleDriveService {
     try {
       // Use provided credentials path or fallback to environment variable
       const finalCredentialsPath =
-        credentialsPath || backupConfig.googleDrive.credentialsPath;
+        credentialsPath ||
+        this.configService.get<string>('googleDrive.credentialsPath');
 
       // Use provided folder ID or fallback to environment variable
       const finalFolderId =
-        folderId || backupConfig.googleDrive.defaultFolderId;
+        folderId ||
+        this.configService.get<string>('googleDrive.defaultFolderId');
 
       this.logger.log(
         `Google Drive upload initiated: ${path.basename(filePath)}`,
@@ -129,7 +133,8 @@ export class GoogleDriveService {
 
       // Check if we have a token file (token.json)
       const tokenPath =
-        backupConfig.googleDrive.tokenPath || 'credentials/token.json';
+        this.configService.get<string>('googleDrive.tokenPath') ||
+        'credentials/token.json';
 
       if (fs.existsSync(tokenPath)) {
         const token = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
@@ -171,7 +176,7 @@ export class GoogleDriveService {
    * @returns True if enabled globally via environment variable
    */
   isEnabledByDefault(): boolean {
-    return backupConfig.googleDrive.enabled;
+    return this.configService.get<boolean>('googleDrive.enabled');
   }
 
   /**
@@ -179,7 +184,7 @@ export class GoogleDriveService {
    * @returns Credentials file path from config
    */
   getDefaultCredentialsPath(): string {
-    return backupConfig.googleDrive.credentialsPath;
+    return this.configService.get<string>('googleDrive.credentialsPath');
   }
 
   /**
@@ -187,7 +192,7 @@ export class GoogleDriveService {
    * @returns Folder ID from config or undefined
    */
   getDefaultFolderId(): string | undefined {
-    return backupConfig.googleDrive.defaultFolderId;
+    return this.configService.get<string>('googleDrive.defaultFolderId');
   }
 
   /**
@@ -220,9 +225,11 @@ export class GoogleDriveService {
   ): Promise<any[]> {
     try {
       const finalCredentialsPath =
-        credentialsPath || backupConfig.googleDrive.credentialsPath;
+        credentialsPath ||
+        this.configService.get<string>('googleDrive.credentialsPath');
       const finalFolderId =
-        folderId || backupConfig.googleDrive.defaultFolderId;
+        folderId ||
+        this.configService.get<string>('googleDrive.defaultFolderId');
 
       if (!finalFolderId) {
         throw new Error('Folder ID is required to list files');
