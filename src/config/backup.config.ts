@@ -1,29 +1,131 @@
-export interface SshConfig {
-  host: string;
-  port: number;
-  username: string;
-  password?: string;
-  privateKey?: string;
-}
+import { SshConfig } from '../modules/shared/interfaces';
 
+/**
+ * SSH Configuration (used for DTOs and types)
+ */
+export { SshConfig };
+
+/**
+ * Backup Configuration Interface
+ * Complete configuration for a backup operation
+ */
 export interface BackupConfig {
   serverName: string;
   sshConfig: SshConfig;
   remoteDirectory: string;
-  targetFolder: string; // Folder to backup (e.g., "uploads")
+  targetFolder: string;
   compressionType: 'zip' | 'tar.gz';
-  localBackupPath: string; // e.g., "H:/Backup"
-  googleDrive: {
+  localBackupPath: string;
+  googleDrive?: {
     enabled: boolean;
-    folderId?: string; // Google Drive folder ID
-    credentialsPath?: string; // Path to Google credentials JSON
+    folderId?: string;
+    credentialsPath?: string;
   };
 }
 
-export const defaultBackupConfig: Partial<BackupConfig> = {
-  compressionType: 'zip',
-  localBackupPath: 'H:/Backup',
+/**
+ * Application Configuration
+ * Global settings with environment variable support
+ */
+export const backupConfig = {
+  // Local backup path (configurable via environment variable)
+  localBackupPath: process.env.BACKUP_LOCAL_PATH || 'H:/Backup',
+
+  // Default compression format
+  defaultCompressionFormat:
+    (process.env.DEFAULT_COMPRESSION_FORMAT as 'zip' | 'tar.gz') || 'zip',
+
+  // Maximum concurrent backups
+  maxConcurrentBackups: parseInt(process.env.MAX_CONCURRENT_BACKUPS || '5', 10),
+
+  // SSH connection timeout in milliseconds
+  sshTimeout: parseInt(process.env.SSH_TIMEOUT || '30000', 10),
+
+  // SFTP optimization settings
+  sftp: {
+    // Number of concurrent reads/writes (higher = faster but more resources)
+    concurrency: parseInt(process.env.SFTP_CONCURRENCY || '64', 10),
+
+    // Chunk size in bytes (64KB = 65536)
+    chunkSize: parseInt(process.env.SFTP_CHUNK_SIZE || '65536', 10),
+
+    // Number of retry attempts on failure
+    retryAttempts: parseInt(process.env.SFTP_RETRY_ATTEMPTS || '3', 10),
+
+    // Delay between retry attempts in milliseconds
+    retryDelay: parseInt(process.env.SFTP_RETRY_DELAY || '2000', 10),
+  },
+
+  // Google Drive settings
   googleDrive: {
-    enabled: false,
+    // Enable/disable Google Drive upload by default
+    enabled: process.env.GOOGLE_DRIVE_ENABLED === 'true',
+
+    // Google Drive API Key (optional - takes precedence over credentials)
+    apiKey: process.env.GOOGLE_DRIVE_API_KEY || undefined,
+
+    // Default credentials path (fallback if no API key)
+    credentialsPath:
+      process.env.GOOGLE_DRIVE_CREDENTIALS_PATH ||
+      'credentials/google-drive.json',
+
+    // Default folder ID
+    defaultFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || undefined,
+  },
+
+  // Discord notification settings
+  discord: {
+    // Enable/disable Discord notifications
+    enabled: process.env.DISCORD_ENABLED === 'true',
+
+    // Method 1: Bot Token (Advanced - Recommended)
+    // Discord bot token from Discord Developer Portal
+    botToken: process.env.DISCORD_BOT_TOKEN || undefined,
+
+    // Channel ID to send notifications (required if using bot token)
+    channelId: process.env.DISCORD_CHANNEL_ID || undefined,
+
+    // Method 2: Webhook URL (Simple)
+    // Discord webhook URL for notifications
+    defaultWebhookUrl: process.env.DISCORD_WEBHOOK_URL || undefined,
+
+    // Bot display name (for webhook method)
+    botUsername: process.env.DISCORD_BOT_USERNAME || 'Backup Bot',
+
+    // Bot avatar URL (for webhook method, optional)
+    botAvatarUrl: process.env.DISCORD_BOT_AVATAR_URL || undefined,
   },
 };
+
+/**
+ * Environment Variables Documentation
+ *
+ * BACKUP_LOCAL_PATH: Local directory for storing backups (default: H:/Backup)
+ * DEFAULT_COMPRESSION_FORMAT: zip or tar.gz (default: zip)
+ * MAX_CONCURRENT_BACKUPS: Maximum number of parallel backups (default: 5)
+ * SSH_TIMEOUT: SSH connection timeout in milliseconds (default: 30000)
+ *
+ * SFTP Optimization:
+ * SFTP_CONCURRENCY: Concurrent chunks for transfer (default: 64)
+ * SFTP_CHUNK_SIZE: Size of each chunk in bytes (default: 65536)
+ * SFTP_RETRY_ATTEMPTS: Number of retry attempts (default: 3)
+ * SFTP_RETRY_DELAY: Delay between retries in ms (default: 2000)
+ *
+ * Google Drive:
+ * GOOGLE_DRIVE_ENABLED: Enable/disable upload globally (default: false)
+ * GOOGLE_DRIVE_API_KEY: API key for authentication (optional, takes precedence)
+ * GOOGLE_DRIVE_CREDENTIALS_PATH: Path to credentials JSON (fallback)
+ * GOOGLE_DRIVE_FOLDER_ID: Default Drive folder ID
+ *
+ * Discord Notifications:
+ * DISCORD_ENABLED: Enable/disable Discord notifications (default: false)
+ *
+ * Method 1 - Bot Token (Recommended, more features):
+ * DISCORD_BOT_TOKEN: Bot token from Discord Developer Portal
+ * DISCORD_CHANNEL_ID: Channel ID to send notifications
+ *
+ * Method 2 - Webhook (Simple):
+ * DISCORD_WEBHOOK_URL: Discord webhook URL for sending notifications
+ * DISCORD_BOT_USERNAME: Bot display name (for webhook, default: Backup Bot)
+ * DISCORD_BOT_AVATAR_URL: Bot avatar URL (for webhook, optional)
+ */

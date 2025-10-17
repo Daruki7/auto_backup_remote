@@ -1,0 +1,230 @@
+---
+description: Auto Backup Thomi - Project-Specific Intelligence
+globs:
+alwaysApply: true
+---
+
+# Auto Backup Thomi - Project Intelligence
+
+## Memory Bank Status
+
+✅ **Initialized**: October 17, 2025  
+📍 **Location**: `memory-bank/` directory with all 6 core files  
+⚠️ **IMPORTANT**: Always read ALL memory bank files at the start of EVERY task
+
+## Critical Project Context
+
+### Architecture Investigation Required
+
+**🚨 PRIORITY**: Source code (`src/`) structure differs from compiled output (`dist/`)
+
+- **Source**: Simple flat structure (services, controllers, dto)
+- **Compiled**: Modular structure with additional modules (monitoring, notifications, scheduler, google-drive)
+
+**Before making changes**:
+
+1. Verify which code is actually active
+2. Check if monitoring/notifications/scheduler features work
+3. Consider running `yarn build` to get fresh dist/
+4. Update memory bank with findings
+
+### Known Constraints
+
+#### Platform-Specific
+
+- **Storage Path**: Hardcoded `H:/Backup/` (Windows-specific)
+- **Action Required**: Check for environment variable configuration before deployment
+- **Linux/macOS**: Will need path adjustment
+
+#### Security Notes
+
+- ⚠️ No API authentication currently implemented
+- ⚠️ Credentials passed in request body (security concern)
+- ⚠️ HTTP only (no HTTPS)
+- **Action**: Do NOT deploy to production without adding authentication
+
+## Development Patterns
+
+### Code Organization
+
+- **Language**: TypeScript with strict typing
+- **Framework**: NestJS 10.x
+- **Style**: Follow NestJS best practices per nestjs.mdc rules
+- **Naming**: kebab-case files, PascalCase classes, camelCase variables
+
+### When Making Changes
+
+1. **Check both** `src/` and `dist/modules/` for existing code
+2. **Maintain consistency** with established patterns
+3. **Update DTOs** when adding new endpoints
+4. **Update Swagger** decorators for API docs
+5. **Consider security implications** of changes
+
+### Service Dependencies
+
+```
+BackupController → BackupService → {
+  SshService,
+  CompressionService,
+  FileDownloadService,
+  GoogleDriveService
+}
+```
+
+### Key Files to Know
+
+- `src/main.ts` - App bootstrap, Swagger config
+- `src/app.module.ts` - Root module (simple structure)
+- `src/services/backup.service.ts` - Main orchestrator
+- `src/dto/backup.dto.ts` - Request validation schemas
+- `src/config/backup.config.ts` - Configuration values
+
+## Testing Strategy
+
+- Unit tests: Test services with mocked dependencies
+- Integration tests: Test service interactions
+- E2E tests: Test through HTTP API
+- **Run**: `yarn test` or `yarn test:e2e`
+
+## Common Tasks
+
+### Adding a New Backup Option
+
+1. Update `BackupRequestDto` in `src/dto/backup.dto.ts`
+2. Add Swagger decorators for documentation
+3. Update `BackupService.executeBackup()` logic
+4. Test via Swagger UI at `/api`
+5. Update memory bank if significant change
+
+### Adding a New Service
+
+1. Create in `src/services/` with `.service.ts` suffix
+2. Add `@Injectable()` decorator
+3. Register in `app.module.ts` providers array
+4. Inject into BackupService if needed
+5. Follow NestJS dependency injection patterns
+
+### Adding a New Endpoint
+
+1. Add method to `BackupController`
+2. Add Swagger decorators (`@ApiOperation`, `@ApiResponse`)
+3. Create/update DTO for validation
+4. Implement logic in appropriate service
+5. Test via Swagger UI
+
+## Operational Notes
+
+### Running the Application
+
+```bash
+# Development (hot reload)
+yarn dev
+
+# Production build
+yarn build
+yarn start:prod
+
+# Access API docs
+http://localhost:3000/api
+```
+
+### Environment Setup
+
+- Node.js 16+ required
+- Yarn preferred package manager
+- SSH access to target servers needed
+- Google Drive credentials optional (in `credentials/`)
+
+### Troubleshooting
+
+- **Build errors**: Check TypeScript version, run `yarn install`
+- **SSH failures**: Verify credentials, network access, firewall
+- **Path errors**: Check H:/ drive exists (Windows) or update config
+- **Google Drive errors**: Verify credentials.json and API enabled
+
+## Future Considerations
+
+### Before Production Deployment
+
+- [ ] Add API authentication (JWT/API keys)
+- [ ] Enable HTTPS
+- [ ] Implement credential vault
+- [ ] Add rate limiting
+- [ ] Configure monitoring
+- [ ] Set up proper logging
+- [ ] Add backup retention policy
+- [ ] Cross-platform path configuration
+
+### Potential Features
+
+- Web UI for management
+- Backup scheduling (may already exist in dist/)
+- Email/Slack notifications (Discord exists in dist/)
+- Backup verification
+- Incremental backups
+- Multi-cloud support
+
+## Learning Notes
+
+### What Works Well
+
+- Clean service separation
+- Good TypeScript typing
+- Comprehensive API documentation
+- Multi-server support from start
+- Proper DTO validation
+
+### Areas for Improvement
+
+- Security (authentication, credentials handling)
+- Cross-platform compatibility
+- Configuration management (environment variables)
+- Testing coverage (currently unknown)
+- Error handling could be more comprehensive
+
+## Memory Bank Maintenance
+
+### When to Update
+
+- After significant feature additions
+- When architecture becomes clearer (dist/ vs src/ issue)
+- After security enhancements
+- When deployment configuration changes
+- User requests "update memory bank"
+
+### Key Files to Update
+
+- `activeContext.md` - Current work and decisions
+- `progress.md` - Feature completion status
+- `systemPatterns.md` - If architecture changes
+- `techContext.md` - If dependencies change
+
+## Project Evolution
+
+### Phase 1: Current State
+
+- Core backup functionality working
+- API-first design
+- Basic error handling
+- Swagger documentation
+
+### Phase 2: Investigation (Next)
+
+- Clarify dist/ vs src/ discrepancy
+- Verify monitoring/notifications/scheduler
+- Document actual active features
+- Clean up if needed
+
+### Phase 3: Hardening (Future)
+
+- Add authentication
+- Improve security
+- Cross-platform support
+- Enhanced monitoring
+
+### Phase 4: Enhancement (Long-term)
+
+- Web UI
+- Advanced scheduling
+- Multi-cloud
+- Analytics dashboard
