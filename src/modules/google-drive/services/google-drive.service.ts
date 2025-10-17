@@ -6,8 +6,14 @@ import { backupConfig } from '../../../config/backup.config';
 
 /**
  * Google Drive Service
- * Handles file uploads to Google Drive with flexible configuration
- * Supports both environment variables and per-request configuration
+ * Supports TWO authentication methods:
+ * 1. OAuth2 Client Credentials (credentials.json from Google Cloud Console)
+ * 2. Service Account (legacy, still supported)
+ *
+ * Method selection:
+ * - Checks credentials file format automatically
+ * - OAuth2: Has 'installed' or 'web' key
+ * - Service Account: Has 'type': 'service_account'
  */
 @Injectable()
 export class GoogleDriveService {
@@ -15,7 +21,7 @@ export class GoogleDriveService {
 
   /**
    * Upload file to Google Drive
-   * Uses environment variables as defaults, can be overridden by parameters
+   * Automatically detects credential type (OAuth2 or Service Account)
    *
    * @param filePath Local file path to upload
    * @param credentialsPath Optional: Path to credentials JSON (uses env var if not provided)
@@ -57,12 +63,8 @@ export class GoogleDriveService {
         fs.readFileSync(finalCredentialsPath, 'utf8'),
       );
 
-      // Create OAuth2 client with service account
-      const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive.file'],
-      });
-
+      // Detect credential type and create appropriate auth
+      const auth = await this.createAuthClient(credentials);
       const drive = google.drive({ version: 'v3', auth });
 
       const fileName = path.basename(filePath);
@@ -100,6 +102,68 @@ export class GoogleDriveService {
       this.logger.error(`❌ Google Drive upload failed: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Create appropriate auth client based on credentials type
+   * Supports both OAuth2 and Service Account
+   *
+   * @param credentials Credentials object from JSON file
+   * @returns Auth client
+   */
+  private async createAuthClient(credentials: any): Promise<any> {
+    // Method 1: OAuth2 Client Credentials (credentials.json from Google Cloud Console)
+    if (credentials.installed || credentials.web) {
+      this.logger.log('Using OAuth2 Client Credentials');
+
+      const oauth2Credentials = credentials.installed || credentials.web;
+
+      // Create OAuth2 client
+      const oauth2Client = new google.auth.OAuth2(
+        oauth2Credentials.client_id,
+        oauth2Credentials.client_secret,
+        oauth2Credentials.redirect_uris
+          ? oauth2Credentials.redirect_uris[0]
+          : undefined,
+      );
+
+      // Check if we have a token file (token.json)
+      const tokenPath =
+        backupConfig.googleDrive.tokenPath || 'credentials/token.json';
+
+      if (fs.existsSync(tokenPath)) {
+        const token = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+        oauth2Client.setCredentials(token);
+        this.logger.log('OAuth2 token loaded from file');
+      } else {
+        throw new Error(
+          `OAuth2 token file not found: ${tokenPath}. ` +
+            `Please run 'yarn generate-token' to generate token first. ` +
+            `Or use Service Account credentials instead.`,
+        );
+      }
+
+      return oauth2Client;
+    }
+
+    // Method 2: Service Account (legacy support)
+    if (credentials.type === 'service_account') {
+      this.logger.log('Using Service Account Credentials');
+
+      const auth = new google.auth.GoogleAuth({
+        credentials,
+        scopes: ['https://www.googleapis.com/auth/drive.file'],
+      });
+
+      return auth;
+    }
+
+    // Unknown format
+    throw new Error(
+      'Unknown credentials format. ' +
+        'Expected OAuth2 Client (credentials.json) or Service Account. ' +
+        'Please download correct credentials from Google Cloud Console.',
+    );
   }
 
   /**
@@ -168,11 +232,7 @@ export class GoogleDriveService {
         fs.readFileSync(finalCredentialsPath, 'utf8'),
       );
 
-      const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive.readonly'],
-      });
-
+      const auth = await this.createAuthClient(credentials);
       const drive = google.drive({ version: 'v3', auth });
 
       const response = await drive.files.list({
