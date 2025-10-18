@@ -1,10 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SshCommandService } from '../../shared/services';
+import { SshCommandService, SftpClientService } from '../../shared/services';
 import { CompressionService } from './compression.service';
 import { FileTransferService } from './file-transfer.service';
 import { GoogleDriveService } from '../../google-drive/services/google-drive.service';
 import { DiscordService } from '../../notifications/services/discord.service';
 import { BackupConfig } from '../../../config/backup.config';
+import * as path from 'path';
 
 /**
  * Backup Result Interface
@@ -37,6 +38,7 @@ export class BackupService {
 
   constructor(
     private readonly sshCommandService: SshCommandService,
+    private readonly sftpClientService: SftpClientService,
     private readonly compressionService: CompressionService,
     private readonly fileTransferService: FileTransferService,
     private readonly googleDriveService: GoogleDriveService,
@@ -119,27 +121,6 @@ export class BackupService {
         `[${config.serverName}] Compression successful: ${remoteCompressedFile}`,
       );
 
-      // Step 4: Download the compressed file (OPTIMIZED with ssh2-sftp-client)
-      this.logger.log(
-        `[${config.serverName}] Step 4: Downloading file (optimized)`,
-      );
-      const localFilePath =
-        await this.fileTransferService.downloadAndOrganizeFile(
-          config.sshConfig,
-          remoteCompressedFile,
-          config.localBackupPath,
-          config.serverName,
-        );
-      result.localFilePath = localFilePath;
-      result.steps.download = true;
-
-      const fileSizeMB = this.fileTransferService.getFileSizeMB(localFilePath);
-      result.fileSize = fileSizeMB;
-      this.logger.log(
-        `[${config.serverName}] Download successful: ${localFilePath} (${fileSizeMB.toFixed(2)} MB)`,
-      );
-
-      // Step 5: Upload to Google Drive (if enabled)
       // Check if Google Drive upload is enabled:
       // 1. If explicitly set in config, use that value
       // 2. Otherwise, use environment variable default
@@ -148,9 +129,33 @@ export class BackupService {
           ? config.googleDrive.enabled
           : this.googleDriveService.isEnabledByDefault();
 
+      // Determine upload method: 'direct' or 'local'
+      const uploadMethod = config.googleDrive?.uploadMethod || 'local';
+
+      let localFilePath: string = null;
+      let fileSizeMB: number = 0;
+      let googleDriveFolderName: string = null;
+
+      // Generate folder name for Discord notification
       if (shouldUploadToGoogleDrive) {
+        const date = new Date();
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        googleDriveFolderName = `${year}_${month}_${day}-Database_${config.serverName}`;
+      }
+
+      // Step 4 & 5: Handle download and upload based on configuration
+      // Case 1: Direct upload (enabled=true, method=direct)
+      // Case 2: Local upload (enabled=true, method=local)
+      // Case 3: Local only (enabled=false)
+
+      if (shouldUploadToGoogleDrive && uploadMethod === 'direct') {
+        // ==========================================
+        // CASE 1: DIRECT METHOD (SSH → Drive, NO local download)
+        // ==========================================
         this.logger.log(
-          `[${config.serverName}] Step 5: Uploading to Google Drive`,
+          `[${config.serverName}] 🚀 Direct upload mode: SSH → Google Drive (no local download)`,
         );
 
         try {
@@ -158,15 +163,134 @@ export class BackupService {
           const credentialsPath =
             config.googleDrive?.credentialsPath ||
             this.googleDriveService.getDefaultCredentialsPath();
-          const folderId =
+          const parentFolderId =
             config.googleDrive?.folderId ||
             this.googleDriveService.getDefaultFolderId();
 
-          // Upload to Google Drive (service will use env vars as fallback)
-          const fileId = await this.googleDriveService.uploadFile(
+          // Get read stream from SSH (no local storage)
+          const { stream, client, fileSize } =
+            await this.sftpClientService.getReadStream(
+              config.sshConfig,
+              remoteCompressedFile,
+            );
+
+          fileSizeMB = fileSize / (1024 * 1024);
+          result.fileSize = fileSizeMB;
+
+          try {
+            // Create date-based folder in Google Drive
+            const folderId = await this.googleDriveService.createDateFolder(
+              config.serverName,
+              credentialsPath,
+              parentFolderId,
+            );
+
+            // Upload directly from stream to Google Drive
+            const fileName = path.basename(remoteCompressedFile);
+            const mimeType =
+              this.googleDriveService.getMimeTypeFromFilename(fileName);
+            const fileId = await this.googleDriveService.uploadFromStream(
+              stream,
+              fileName,
+              mimeType,
+              folderId,
+              credentialsPath,
+            );
+
+            result.googleDriveFileId = fileId;
+            result.steps.googleDriveUpload = true;
+            result.steps.download = true; // Mark as complete (streamed, not downloaded)
+
+            this.logger.log(
+              `[${config.serverName}] ✅ Direct upload successful: ${fileId} (${fileSizeMB.toFixed(2)} MB)`,
+            );
+            this.logger.log(
+              `[${config.serverName}] ℹ️  No local file saved (direct stream to Drive)`,
+            );
+          } finally {
+            // Always close the SFTP client
+            try {
+              await client.end();
+            } catch (endError) {
+              this.logger.warn(
+                `Failed to close SFTP client: ${endError.message}`,
+              );
+            }
+          }
+        } catch (error) {
+          // Fallback: If direct upload fails, download to local and try again
+          this.logger.warn(
+            `[${config.serverName}] ⚠️  Direct upload failed: ${error.message}`,
+          );
+          this.logger.warn(
+            `[${config.serverName}] 🔄 Falling back to local method...`,
+          );
+
+          // Download to local as fallback
+          localFilePath =
+            await this.fileTransferService.downloadAndOrganizeFile(
+              config.sshConfig,
+              remoteCompressedFile,
+              config.localBackupPath,
+              config.serverName,
+            );
+          result.localFilePath = localFilePath;
+          result.steps.download = true;
+          fileSizeMB = this.fileTransferService.getFileSizeMB(localFilePath);
+          result.fileSize = fileSizeMB;
+
+          this.logger.log(
+            `[${config.serverName}] Fallback download complete: ${localFilePath}`,
+          );
+        }
+      } else if (shouldUploadToGoogleDrive && uploadMethod === 'local') {
+        // ==========================================
+        // CASE 2: LOCAL METHOD (SSH → Local → Drive)
+        // ==========================================
+        this.logger.log(
+          `[${config.serverName}] 💾 Local upload mode: SSH → Local PC → Google Drive`,
+        );
+
+        // Step 4: Download to local PC first
+        this.logger.log(
+          `[${config.serverName}] Step 4: Downloading file to local PC...`,
+        );
+
+        localFilePath = await this.fileTransferService.downloadAndOrganizeFile(
+          config.sshConfig,
+          remoteCompressedFile,
+          config.localBackupPath,
+          config.serverName,
+        );
+        result.localFilePath = localFilePath;
+        result.steps.download = true;
+
+        fileSizeMB = this.fileTransferService.getFileSizeMB(localFilePath);
+        result.fileSize = fileSizeMB;
+        this.logger.log(
+          `[${config.serverName}] ✅ Download successful: ${localFilePath} (${fileSizeMB.toFixed(2)} MB)`,
+        );
+
+        // Step 5: Upload from local to Google Drive
+        this.logger.log(
+          `[${config.serverName}] Step 5: Uploading from local PC to Google Drive...`,
+        );
+
+        try {
+          // Use provided paths or fallback to environment variables
+          const credentialsPath =
+            config.googleDrive?.credentialsPath ||
+            this.googleDriveService.getDefaultCredentialsPath();
+          const parentFolderId =
+            config.googleDrive?.folderId ||
+            this.googleDriveService.getDefaultFolderId();
+
+          // Upload to Google Drive with date-based folder
+          const { fileId } = await this.googleDriveService.uploadFile(
             localFilePath,
+            config.serverName,
             credentialsPath,
-            folderId,
+            parentFolderId,
           );
           result.googleDriveFileId = fileId;
           result.steps.googleDriveUpload = true;
@@ -179,12 +303,38 @@ export class BackupService {
             `[${config.serverName}] ⚠️  Google Drive upload failed: ${error.message}`,
           );
           this.logger.warn(
-            `[${config.serverName}] Backup completed but not uploaded to cloud`,
+            `[${config.serverName}] ℹ️  Backup saved locally but not uploaded to cloud`,
           );
         }
       } else {
+        // ==========================================
+        // CASE 3: LOCAL ONLY (enabled=false, just download)
+        // ==========================================
         this.logger.log(
-          `[${config.serverName}] Google Drive upload skipped (disabled)`,
+          `[${config.serverName}] 📁 Local only mode: SSH → Local PC (no cloud upload)`,
+        );
+
+        // Step 4: Download to local PC only
+        this.logger.log(
+          `[${config.serverName}] Step 4: Downloading file to local PC...`,
+        );
+
+        localFilePath = await this.fileTransferService.downloadAndOrganizeFile(
+          config.sshConfig,
+          remoteCompressedFile,
+          config.localBackupPath,
+          config.serverName,
+        );
+        result.localFilePath = localFilePath;
+        result.steps.download = true;
+
+        fileSizeMB = this.fileTransferService.getFileSizeMB(localFilePath);
+        result.fileSize = fileSizeMB;
+        this.logger.log(
+          `[${config.serverName}] ✅ Download successful: ${localFilePath} (${fileSizeMB.toFixed(2)} MB)`,
+        );
+        this.logger.log(
+          `[${config.serverName}] ℹ️  Google Drive upload disabled - file saved locally only`,
         );
       }
 
@@ -209,6 +359,8 @@ export class BackupService {
           duration,
           localFilePath,
           result.steps.googleDriveUpload,
+          shouldUploadToGoogleDrive ? uploadMethod : undefined,
+          googleDriveFolderName,
         );
       }
 

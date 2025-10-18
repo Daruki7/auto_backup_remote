@@ -215,6 +215,48 @@ export class SftpClientService {
   }
 
   /**
+   * Get a readable stream from remote file
+   * Used for direct upload to Google Drive without local storage
+   * @param sshConfig SSH connection configuration
+   * @param remotePath Remote file path
+   * @returns Object with stream and client (caller must close client)
+   */
+  async getReadStream(
+    sshConfig: SshConfig,
+    remotePath: string,
+  ): Promise<{
+    stream: NodeJS.ReadableStream;
+    client: SftpClient;
+    fileSize: number;
+  }> {
+    const client = new SftpClient();
+    try {
+      await client.connect(this.buildConnectionConfig(sshConfig));
+      this.logger.log(`SFTP connected to ${sshConfig.host} for streaming`);
+
+      // Get file size
+      const stats = await client.stat(remotePath);
+      const fileSize = stats.size;
+      this.logger.log(
+        `Creating read stream for: ${(fileSize / (1024 * 1024)).toFixed(2)} MB`,
+      );
+
+      // Create read stream
+      const stream = client.createReadStream(remotePath);
+
+      return { stream, client, fileSize };
+    } catch (error) {
+      this.logger.error(`Failed to create read stream: ${error.message}`);
+      try {
+        await client.end();
+      } catch (endError) {
+        // Ignore end errors
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Check if a file or directory exists on remote server
    * @param sshConfig SSH connection configuration
    * @param remotePath Remote path to check

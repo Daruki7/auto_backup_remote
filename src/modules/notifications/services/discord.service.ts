@@ -243,38 +243,78 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
     duration: number,
     localPath: string,
     googleDriveUploaded: boolean = false,
+    uploadMethod?: 'direct' | 'local',
+    googleDriveFolderName?: string,
   ): Promise<void> {
+    const fields: Array<{ name: string; value: string; inline: boolean }> = [
+      {
+        name: '🖥️ Server',
+        value: serverName,
+        inline: true,
+      },
+      {
+        name: '💾 Kích thước',
+        value: `${fileSize.toFixed(2)} MB`,
+        inline: true,
+      },
+      {
+        name: '⏱️ Thời gian',
+        value: `${duration.toFixed(1)}s`,
+        inline: true,
+      },
+    ];
+
+    // Add upload method if provided
+    if (uploadMethod) {
+      const methodDisplay =
+        uploadMethod === 'direct'
+          ? '🚀 Direct (SSH → Drive)'
+          : '💾 Local (SSH → PC → Drive)';
+      fields.push({
+        name: '📤 Phương pháp',
+        value: methodDisplay,
+        inline: false,
+      });
+    }
+
+    // Add local path if exists
+    if (localPath) {
+      fields.push({
+        name: '📁 Vị trí file local',
+        value: `\`${localPath}\``,
+        inline: false,
+      });
+    }
+
+    // Add Google Drive info
+    if (googleDriveUploaded) {
+      fields.push({
+        name: '☁️ Google Drive',
+        value: '✅ Đã upload thành công',
+        inline: true,
+      });
+
+      // Add folder name if provided
+      if (googleDriveFolderName) {
+        fields.push({
+          name: '📂 Folder trên Drive',
+          value: `\`${googleDriveFolderName}\``,
+          inline: false,
+        });
+      }
+    } else {
+      fields.push({
+        name: '☁️ Google Drive',
+        value: '❌ Không upload',
+        inline: true,
+      });
+    }
+
     const notification: DiscordNotification = {
       title: '✅ Backup Thành Công',
       description: `Server **${serverName}** đã được backup thành công!`,
       color: 3066993, // Green
-      fields: [
-        {
-          name: '🖥️ Server',
-          value: serverName,
-          inline: true,
-        },
-        {
-          name: '💾 Kích thước',
-          value: `${fileSize.toFixed(2)} MB`,
-          inline: true,
-        },
-        {
-          name: '⏱️ Thời gian',
-          value: `${duration.toFixed(1)}s`,
-          inline: true,
-        },
-        {
-          name: '📁 Vị trí file',
-          value: `\`${localPath}\``,
-          inline: false,
-        },
-        {
-          name: '☁️ Google Drive',
-          value: googleDriveUploaded ? '✅ Đã upload' : '❌ Không upload',
-          inline: true,
-        },
-      ],
+      fields,
       timestamp: new Date(),
     };
 

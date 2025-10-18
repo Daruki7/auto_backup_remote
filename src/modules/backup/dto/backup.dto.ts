@@ -62,7 +62,19 @@ export class GoogleDriveConfigDto {
   enabled?: boolean = false;
 
   @ApiPropertyOptional({
-    description: 'Google Drive folder ID',
+    description:
+      'Upload method: "direct" uploads from SSH to Drive without local download, "local" downloads to local first then uploads',
+    enum: ['direct', 'local'],
+    example: 'local',
+    default: 'local',
+  })
+  @IsEnum(['direct', 'local'])
+  @IsOptional()
+  uploadMethod?: 'direct' | 'local' = 'local';
+
+  @ApiPropertyOptional({
+    description:
+      'Google Drive parent folder ID (folder structure YYYY_MM_DD-Database_ServerName will be created inside)',
     example: '1abc...xyz',
   })
   @IsString()

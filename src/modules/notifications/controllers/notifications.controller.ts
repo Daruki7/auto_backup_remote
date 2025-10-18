@@ -273,6 +273,8 @@ export class NotificationsController {
         42.1, // 42.1 seconds
         'H:/Backup/test-server/2025_10_18-Database_test-server/uploads.zip',
         true, // Google Drive uploaded
+        'local', // Upload method
+        '2025_10_18-Database_test-server', // Google Drive folder name
       );
 
       return {
@@ -322,6 +324,52 @@ export class NotificationsController {
       return {
         success: true,
         message: 'Test backup failure notification sent to Discord',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed: ${error.message}`,
+      };
+    }
+  }
+
+  @Post('test-direct-upload')
+  @ApiOperation({
+    summary: 'Test Discord notification with Direct upload method',
+    description:
+      'Simulates a successful backup using Direct upload method (SSH → Drive)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Test notification sent successfully',
+  })
+  async testDirectUpload(): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    try {
+      if (!this.discordService.isEnabled()) {
+        return {
+          success: false,
+          message:
+            'Discord is not enabled. Check /notifications/discord-status for details',
+        };
+      }
+
+      await this.discordService.sendBackupSuccess(
+        'production-server',
+        256.78, // 256.78 MB
+        35.5, // 35.5 seconds
+        null, // No local path for direct method
+        true, // Google Drive uploaded
+        'direct', // Direct upload method
+        '2025_10_18-Database_production-server', // Google Drive folder name
+      );
+
+      return {
+        success: true,
+        message:
+          'Test notification sent: Direct upload (SSH → Drive, no local file)',
       };
     } catch (error) {
       return {

@@ -26,67 +26,47 @@ export class GoogleDriveService {
    * Automatically detects credential type (OAuth2 or Service Account)
    *
    * @param filePath Local file path to upload
+   * @param serverName Server name for folder structure (e.g., "Production_Server")
    * @param credentialsPath Optional: Path to credentials JSON (uses env var if not provided)
-   * @param folderId Optional: Google Drive folder ID (uses env var if not provided)
-   * @returns Uploaded file ID
+   * @param parentFolderId Optional: Parent folder ID where date folder will be created (uses env var if not provided)
+   * @returns Object with fileId and folderId
    */
   async uploadFile(
     filePath: string,
+    serverName: string,
     credentialsPath?: string,
-    folderId?: string,
-  ): Promise<string> {
+    parentFolderId?: string,
+  ): Promise<{ fileId: string; folderId: string }> {
     try {
-      // Use provided credentials path or fallback to environment variable
       const finalCredentialsPath =
         credentialsPath ||
         this.configService.get<string>('googleDrive.credentialsPath');
 
-      // Use provided folder ID or fallback to environment variable
-      const finalFolderId =
-        folderId ||
-        this.configService.get<string>('googleDrive.defaultFolderId');
+      this.logger.log(`Uploading file to Google Drive: ${filePath}`);
 
-      this.logger.log(
-        `Google Drive upload initiated: ${path.basename(filePath)}`,
+      // Create date-based folder
+      const folderId = await this.createDateFolder(
+        serverName,
+        finalCredentialsPath,
+        parentFolderId,
       );
-      this.logger.debug(`Using credentials: ${finalCredentialsPath}`);
-      if (finalFolderId) {
-        this.logger.debug(`Target folder ID: ${finalFolderId}`);
-      }
 
-      // Check if credentials file exists
-      if (!fs.existsSync(finalCredentialsPath)) {
-        throw new Error(
-          `Credentials file not found: ${finalCredentialsPath}. ` +
-            `Please ensure GOOGLE_DRIVE_CREDENTIALS_PATH is set correctly in .env or provide credentials path in request.`,
-        );
-      }
-
-      // Load credentials from file
       const credentials = JSON.parse(
         fs.readFileSync(finalCredentialsPath, 'utf8'),
       );
-
-      // Detect credential type and create appropriate auth
       const auth = await this.createAuthClient(credentials);
+
       const drive = google.drive({ version: 'v3', auth });
 
-      const fileName = path.basename(filePath);
       const fileMetadata: any = {
-        name: fileName,
+        name: path.basename(filePath),
+        parents: [folderId],
       };
-
-      // Add to specific folder if provided
-      if (finalFolderId) {
-        fileMetadata.parents = [finalFolderId];
-      }
 
       const media = {
         mimeType: this.getMimeType(filePath),
         body: fs.createReadStream(filePath),
       };
-
-      this.logger.log(`Uploading to Google Drive: ${fileName}`);
 
       const response = await drive.files.create({
         requestBody: fileMetadata,
@@ -101,9 +81,9 @@ export class GoogleDriveService {
         this.logger.log(`📎 Web view link: ${response.data.webViewLink}`);
       }
 
-      return response.data.id;
+      return { fileId: response.data.id, folderId };
     } catch (error) {
-      this.logger.error(`❌ Google Drive upload failed: ${error.message}`);
+      this.logger.error(`Upload failed: ${error.message}`);
       throw error;
     }
   }
@@ -196,6 +176,150 @@ export class GoogleDriveService {
   }
 
   /**
+   * Create folder in Google Drive with specific name
+   * Creates folder structure: YYYY_MM_DD-Database_{serverName}
+   * @param serverName Server name
+   * @param credentialsPath Optional: Path to credentials
+   * @param parentFolderId Optional: Parent folder ID
+   * @returns Created folder ID
+   */
+  async createDateFolder(
+    serverName: string,
+    credentialsPath?: string,
+    parentFolderId?: string,
+  ): Promise<string> {
+    try {
+      // Create folder name: 2025_10_18-Database_ServerName
+      const date = new Date();
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const folderName = `${year}_${month}_${day}-Database_${serverName}`;
+
+      const finalCredentialsPath =
+        credentialsPath ||
+        this.configService.get<string>('googleDrive.credentialsPath');
+      const finalParentFolderId =
+        parentFolderId ||
+        this.configService.get<string>('googleDrive.defaultFolderId');
+
+      this.logger.log(`Creating Google Drive folder: ${folderName}`);
+
+      const credentials = JSON.parse(
+        fs.readFileSync(finalCredentialsPath, 'utf8'),
+      );
+      const auth = await this.createAuthClient(credentials);
+      const drive = google.drive({ version: 'v3', auth });
+
+      // Check if folder already exists
+      const searchQuery = finalParentFolderId
+        ? `name='${folderName}' and '${finalParentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`
+        : `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+
+      const existingFolders = await drive.files.list({
+        q: searchQuery,
+        fields: 'files(id, name)',
+      });
+
+      // If folder exists, return its ID
+      if (existingFolders.data.files && existingFolders.data.files.length > 0) {
+        const existingFolderId = existingFolders.data.files[0].id;
+        this.logger.log(
+          `Folder already exists: ${folderName} (ID: ${existingFolderId})`,
+        );
+        return existingFolderId;
+      }
+
+      // Create new folder
+      const folderMetadata: any = {
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+      };
+
+      if (finalParentFolderId) {
+        folderMetadata.parents = [finalParentFolderId];
+      }
+
+      const response = await drive.files.create({
+        requestBody: folderMetadata,
+        fields: 'id, name',
+      });
+
+      this.logger.log(
+        `✅ Folder created: ${folderName} (ID: ${response.data.id})`,
+      );
+
+      return response.data.id;
+    } catch (error) {
+      this.logger.error(`Failed to create folder: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Upload file from stream to Google Drive
+   * Allows direct upload from SSH without saving to local disk
+   * @param fileStream Readable stream
+   * @param fileName File name
+   * @param mimeType MIME type
+   * @param folderId Folder ID to upload to
+   * @param credentialsPath Optional: Path to credentials
+   * @returns Uploaded file ID
+   */
+  async uploadFromStream(
+    fileStream: any,
+    fileName: string,
+    mimeType: string,
+    folderId?: string,
+    credentialsPath?: string,
+  ): Promise<string> {
+    try {
+      const finalCredentialsPath =
+        credentialsPath ||
+        this.configService.get<string>('googleDrive.credentialsPath');
+
+      this.logger.log(`Uploading from stream to Google Drive: ${fileName}`);
+
+      const credentials = JSON.parse(
+        fs.readFileSync(finalCredentialsPath, 'utf8'),
+      );
+      const auth = await this.createAuthClient(credentials);
+      const drive = google.drive({ version: 'v3', auth });
+
+      const fileMetadata: any = {
+        name: fileName,
+      };
+
+      if (folderId) {
+        fileMetadata.parents = [folderId];
+      }
+
+      const media = {
+        mimeType: mimeType,
+        body: fileStream,
+      };
+
+      const response = await drive.files.create({
+        requestBody: fileMetadata,
+        media: media,
+        fields: 'id, name, webViewLink',
+      });
+
+      this.logger.log(
+        `✅ File uploaded from stream. File ID: ${response.data.id}`,
+      );
+      if (response.data.webViewLink) {
+        this.logger.log(`📎 Web view link: ${response.data.webViewLink}`);
+      }
+
+      return response.data.id;
+    } catch (error) {
+      this.logger.error(`Upload from stream failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Get MIME type based on file extension
    * @param filePath File path
    * @returns MIME type string
@@ -211,6 +335,15 @@ export class GoogleDriveService {
     };
 
     return mimeTypes[ext] || 'application/octet-stream';
+  }
+
+  /**
+   * Get MIME type from filename
+   * @param fileName File name
+   * @returns MIME type string
+   */
+  getMimeTypeFromFilename(fileName: string): string {
+    return this.getMimeType(fileName);
   }
 
   /**

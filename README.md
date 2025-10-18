@@ -9,15 +9,20 @@ Hệ thống tự động hóa quy trình backup từ server qua SSH, nén file,
 - 🔌 **SSH Connection**: Kết nối SSH với password hoặc private key
 - 📦 **Auto Compression**: Nén folder thành ZIP hoặc TAR.GZ trên remote server
 - 💾 **Optimized Download**: Download siêu nhanh với concurrent chunks (30-40% faster) ✨ NEW
-- ☁️ **Google Drive Integration**: Upload lên Google Drive (optional, có thể bật/tắt)
+- ☁️ **Google Drive Integration**: Upload lên Google Drive với 2 phương thức (local/direct) ✨ UPDATED
+  - **Local Method**: SSH → Local → Drive (default, có local copy)
+  - **Direct Method**: SSH → Drive trực tiếp (không cần local storage, nhanh hơn) ✨ NEW
+- 📁 **Date-Based Folders**: Tự động tạo folder theo ngày: `YYYY_MM_DD-Database_ServerName` ✨ NEW
 - 🚀 **Multi-Server Backup**: Backup nhiều server song song, tiết kiệm thời gian
-- 📁 **Smart Organization**: Mỗi server có folder riêng theo date: `H:/Backup/{serverName}/{YYYY_MM_DD-Database_{serverName}}/`
 - 📝 **Swagger UI**: Test API dễ dàng qua browser
 - 🧹 **Auto Cleanup**: Tự động xóa file tạm trên server
-- 🔄 **Auto Retry**: Tự động retry khi download bị lỗi (3 lần) ✨ NEW
-- 📊 **Real-time Progress**: Hiển thị progress download realtime ✨ NEW
-- ⚙️ **Environment Config**: Cấu hình linh hoạt qua environment variables ✨ NEW
-- 🔔 **Discord Notifications**: Thông báo tự động qua Discord khi backup xong ✨ NEW
+- 🔄 **Auto Retry**: Tự động retry khi download bị lỗi (3 lần)
+- 🔁 **Auto Fallback**: Direct upload fail → tự động chuyển sang local method ✨ NEW
+- 📊 **Real-time Progress**: Hiển thị progress download realtime
+- ⚙️ **Environment Config**: Cấu hình linh hoạt qua environment variables
+- 🔔 **Discord Notifications**: Thông báo tự động qua Discord với thông tin chi tiết ✨ UPDATED
+  - Hiển thị phương pháp backup (Direct/Local)
+  - Hiển thị folder Google Drive đã upload
 
 ## 🚀 Quick Start
 
@@ -38,12 +43,15 @@ yarn start:prod
 
 ## 🎯 API Endpoints
 
-| Endpoint                  | Method | Description                         |
-| ------------------------- | ------ | ----------------------------------- |
-| `/api`                    | GET    | Swagger UI Documentation            |
-| `/backup/execute`         | POST   | Backup single server                |
-| `/backup/bulk-execute`    | POST   | Backup multiple servers in parallel |
-| `/backup/test-connection` | POST   | Test SSH connection                 |
+| Endpoint                             | Method | Description                                      |
+| ------------------------------------ | ------ | ------------------------------------------------ |
+| `/api`                               | GET    | Swagger UI Documentation                         |
+| `/backup/execute`                    | POST   | Backup single server                             |
+| `/backup/bulk-execute`               | POST   | Backup multiple servers in parallel              |
+| `/backup/test-connection`            | POST   | Test SSH connection                              |
+| `/notifications/test-backup-success` | POST   | Test Discord notification (Local method) ✨      |
+| `/notifications/test-direct-upload`  | POST   | Test Discord notification (Direct method) ✨ NEW |
+| `/notifications/discord-status`      | GET    | Check Discord configuration status ✨            |
 
 **🌟 Swagger UI**: http://localhost:3000/api
 
@@ -78,15 +86,15 @@ curl -X POST http://localhost:3000/backup/execute \
 }
 ```
 
-### 2. Single Server Backup (Có upload Google Drive)
+### 2. Single Server Backup (Google Drive - Local Method)
 
 ```bash
 curl -X POST http://localhost:3000/backup/execute \
   -H "Content-Type: application/json" \
-  -d @examples/single-server-with-google-drive.json
+  -d '...'
 ```
 
-**File: examples/single-server-with-google-drive.json**
+**Local Method** (default): Tải về local trước, sau đó upload lên Drive
 
 ```json
 {
@@ -103,13 +111,56 @@ curl -X POST http://localhost:3000/backup/execute \
   "localBackupPath": "H:/Backup",
   "googleDrive": {
     "enabled": true,
+    "uploadMethod": "local", // Tải về local trước (default)
     "folderId": "1abc_your_google_drive_folder_id_xyz",
-    "credentialsPath": "credentials/google-drive.json"
+    "credentialsPath": "credentials/credentials.json"
   }
 }
 ```
 
-### 3. Multi-Server Parallel Backup
+**Result**:
+
+- Local: `H:/Backup/production-database-server/database-dumps.tar.gz`
+- Google Drive: `2025_10_18-Database_production-database-server/database-dumps.tar.gz`
+
+---
+
+### 3. Single Server Backup (Google Drive - Direct Method) ✨ NEW
+
+**Direct Method**: Upload trực tiếp SSH → Drive (không tải về local, nhanh hơn!)
+
+```json
+{
+  "serverName": "production-api-server",
+  "sshConfig": {
+    "host": "192.168.1.102",
+    "username": "root",
+    "password": "password"
+  },
+  "remoteDirectory": "/var/www/api",
+  "targetFolder": "uploads",
+  "compressionType": "zip",
+  "googleDrive": {
+    "enabled": true,
+    "uploadMethod": "direct" // Upload trực tiếp, KHÔNG lưu local
+  }
+}
+```
+
+**Result**:
+
+- Local: **Không có file** (trừ khi fallback)
+- Google Drive: `2025_10_18-Database_production-api-server/uploads.zip`
+
+**Advantages**:
+
+- ✅ Nhanh hơn (1 lần transfer thay vì 2)
+- ✅ Không cần dung lượng local disk
+- ✅ Tự động fallback nếu stream fail
+
+---
+
+### 4. Multi-Server Parallel Backup
 
 ```bash
 curl -X POST http://localhost:3000/backup/bulk-execute \
@@ -478,6 +529,21 @@ yarn build
 ```
 
 ## 📚 Documentation
+
+### Main Guides
+
+| File                             | Description                              |
+| -------------------------------- | ---------------------------------------- |
+| `README.md`                      | Main documentation (this file)           |
+| `BACKUP_LOGIC_FLOW.md`           | Complete backup logic explanation ✨ NEW |
+| `UPLOAD_METHODS_GUIDE.md`        | Google Drive upload methods guide ✨     |
+| `DISCORD_NOTIFICATION_UPDATE.md` | Discord notification enhancements ✨     |
+| `GOOGLE_DRIVE_OAUTH2_SETUP.md`   | Google Drive OAuth2 setup guide ✨       |
+| `ENV_VARIABLES_GUIDE.md`         | Environment variables complete guide ✨  |
+| `TESTING_DISCORD.md`             | Discord notification testing guide ✨    |
+| `FIXES_AND_DIAGNOSTICS.md`       | Troubleshooting & diagnostics ✨         |
+
+### Memory Bank (Detailed Documentation)
 
 Comprehensive documentation in `memory-bank/`:
 

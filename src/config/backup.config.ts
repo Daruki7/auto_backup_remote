@@ -18,6 +18,7 @@ export interface BackupConfig {
   localBackupPath: string;
   googleDrive?: {
     enabled: boolean;
+    uploadMethod?: 'direct' | 'local';
     folderId?: string;
     credentialsPath?: string;
   };
