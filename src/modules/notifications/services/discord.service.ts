@@ -55,10 +55,14 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
 
       try {
         this.discordClient = new Client({
-          intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
+          intents: [
+            GatewayIntentBits.Guilds,
+            GatewayIntentBits.GuildMessages,
+            GatewayIntentBits.MessageContent,
+          ],
         });
 
-        this.discordClient.once('ready', (readyClient) => {
+        this.discordClient.once('clientReady', (readyClient) => {
           this.isClientReady = true;
           this.logger.log(
             `✅ Discord bot logged in as ${readyClient.user.tag}`,

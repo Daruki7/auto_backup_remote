@@ -292,7 +292,7 @@ export class SftpClientService {
       username: sshConfig.username,
       readyTimeout: 30000,
       keepaliveInterval: 10000,
-      keepaliveCountMax: 3,
+      keepaliveCountMax: 10,
       // Performance-optimized algorithms
       algorithms: {
         cipher: [

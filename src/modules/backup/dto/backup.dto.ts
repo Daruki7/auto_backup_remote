@@ -70,7 +70,7 @@ export class GoogleDriveConfigDto {
   })
   @IsEnum(['direct', 'local'])
   @IsOptional()
-  uploadMethod?: 'direct' | 'local' = 'local';
+  uploadMethod?: 'direct' | 'local';
 
   @ApiPropertyOptional({
     description:

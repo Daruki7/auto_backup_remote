@@ -125,6 +125,7 @@ export class BackupController {
       googleDrive: {
         enabled: createBackupDto.googleDrive?.enabled || false,
         folderId: createBackupDto.googleDrive?.folderId,
+        uploadMethod: createBackupDto.googleDrive?.uploadMethod || 'local',
         credentialsPath: createBackupDto.googleDrive?.credentialsPath,
       },
     };
@@ -337,6 +338,7 @@ export class BackupController {
         googleDrive: {
           enabled: serverDto.googleDrive?.enabled || false,
           folderId: serverDto.googleDrive?.folderId,
+          uploadMethod: serverDto.googleDrive?.uploadMethod || 'local',
           credentialsPath: serverDto.googleDrive?.credentialsPath,
         },
       };
