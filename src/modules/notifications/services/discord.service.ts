@@ -22,6 +22,7 @@ export interface DiscordNotification {
   color?: number;
   fields?: Array<{ name: string; value: string; inline?: boolean }>;
   timestamp?: Date;
+  content?: string;
 }
 
 /**
@@ -186,8 +187,14 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
+      // 🔥 THÊM CONTENT (MENTION)
+      const messageOptions: any = { embeds: [embed] };
+      if (notification.content) {
+        messageOptions.content = notification.content; // Mention sẽ ở đây
+      }
+
       // Send message
-      await (channel as TextChannel).send({ embeds: [embed] });
+      await (channel as TextChannel).send(messageOptions);
 
       this.logger.log(
         '✅ Discord notification sent successfully (via bot token)',
@@ -221,13 +228,19 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
         },
       };
 
-      // Send to Discord webhook
-      await axios.post(webhookUrl, {
+      const payload: any = {
         embeds: [embed],
         username:
           this.configService.get<string>('discord.botUsername') || 'Backup Bot',
         avatar_url: this.configService.get<string>('discord.botAvatarUrl'),
-      });
+      };
+
+      if (notification.content) {
+        payload.content = notification.content;
+      }
+
+      // Send to Discord webhook
+      await axios.post(webhookUrl, payload);
 
       this.logger.log(
         '✅ Discord notification sent successfully (via webhook)',
@@ -250,6 +263,8 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
     uploadMethod?: 'direct' | 'local',
     googleDriveFolderName?: string,
   ): Promise<void> {
+    const userId = this.configService.get<string>('discord.mentionUserId');
+
     const fields: Array<{ name: string; value: string; inline: boolean }> = [
       {
         name: '🖥️ Server',
@@ -320,6 +335,7 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
       color: 3066993, // Green
       fields,
       timestamp: new Date(),
+      content: userId ? `<@${userId}>` : undefined,
     };
 
     await this.sendNotification(notification);
@@ -333,6 +349,8 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
     error: string,
     duration: number,
   ): Promise<void> {
+    const userId = this.configService.get<string>('discord.mentionUserId');
+
     const notification: DiscordNotification = {
       title: '❌ Backup Thất Bại',
       description: `Backup server **${serverName}** đã thất bại!`,
@@ -355,6 +373,7 @@ export class DiscordService implements OnModuleInit, OnModuleDestroy {
         },
       ],
       timestamp: new Date(),
+      content: userId ? `<@${userId}> ⚠️ Có lỗi xảy ra!` : undefined,
     };
 
     await this.sendNotification(notification);

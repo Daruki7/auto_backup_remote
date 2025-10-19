@@ -47,5 +47,6 @@ export default () => ({
     webhookUrl: process.env.DISCORD_WEBHOOK_URL || undefined,
     botUsername: process.env.DISCORD_BOT_USERNAME || 'Backup Bot',
     botAvatarUrl: process.env.DISCORD_BOT_AVATAR_URL || undefined,
+    mentionUserId: process.env.DISCORD_MENTION_USER_ID || undefined,
   },
 });
