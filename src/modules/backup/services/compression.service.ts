@@ -36,14 +36,14 @@ export class CompressionService {
       // Ubuntu: cd to parent directory and use zip with nice
       // nice -n 19: lowest CPU priority (won't affect production)
       // -r: recursive, -q: quiet mode
-      command = `cd "${parentDir}" && nice -n 19 zip -rq "${compressedFileName}" "${folderName}"`;
+      command = `cd "${parentDir}" && nice -n 19 zip -9 -rq "${compressedFileName}" "${folderName}"`;
     } else {
       // tar.gz
       compressedFileName = `${folderName}_${timestamp}.tar.gz`;
       // Ubuntu: cd to parent directory and use tar with nice
       // nice -n 19: lowest CPU priority (won't affect production)
       // -c: create, -z: gzip, -f: file
-      command = `cd "${parentDir}" && nice -n 19 tar -czf "${compressedFileName}" "${folderName}"`;
+      command = `cd "${parentDir}" && nice -n 19 tar --best -czf "${compressedFileName}" "${folderName}"`;
     }
 
     this.logger.log(

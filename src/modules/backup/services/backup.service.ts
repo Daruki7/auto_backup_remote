@@ -196,7 +196,7 @@ export class BackupService {
               folderId,
               credentialsPath,
             );
-
+ 
             result.googleDriveFileId = fileId;
             result.steps.googleDriveUpload = true;
             result.steps.download = true; // Mark as complete (streamed, not downloaded)
@@ -219,29 +219,27 @@ export class BackupService {
           }
         } catch (error) {
           // Fallback: If direct upload fails, download to local and try again
-          this.logger.warn(
-            `[${config.serverName}] ⚠️  Direct upload failed: ${error.message}`,
-          );
-          this.logger.warn(
-            `[${config.serverName}] 🔄 Falling back to local method...`,
-          );
-
-          // Download to local as fallback
-          localFilePath =
-            await this.fileTransferService.downloadAndOrganizeFile(
-              config.sshConfig,
-              remoteCompressedFile,
-              config.localBackupPath,
-              config.serverName,
-            );
-          result.localFilePath = localFilePath;
-          result.steps.download = true;
-          fileSizeMB = this.fileTransferService.getFileSizeMB(localFilePath);
-          result.fileSize = fileSizeMB;
-
-          this.logger.log(
-            `[${config.serverName}] Fallback download complete: ${localFilePath}`,
-          );
+          // this.logger.warn(
+          //   `[${config.serverName}] ⚠️  Direct upload failed: ${error.message}`,
+          // );
+          // this.logger.warn(
+          //   `[${config.serverName}] 🔄 Falling back to local method...`,
+          // );
+          // // Download to local as fallback
+          // localFilePath =
+          //   await this.fileTransferService.downloadAndOrganizeFile(
+          //     config.sshConfig,
+          //     remoteCompressedFile,
+          //     config.localBackupPath,
+          //     config.serverName,
+          //   );
+          // result.localFilePath = localFilePath;
+          // result.steps.download = true;
+          // fileSizeMB = this.fileTransferService.getFileSizeMB(localFilePath);
+          // result.fileSize = fileSizeMB;
+          // this.logger.log(
+          //   `[${config.serverName}] Fallback download complete: ${localFilePath}`,
+          // );
         }
       } else if (shouldUploadToGoogleDrive && uploadMethod === 'local') {
         // ==========================================

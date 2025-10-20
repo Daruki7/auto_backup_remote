@@ -134,11 +134,15 @@ export class GoogleDriveService {
     // Method 2: Service Account (legacy support)
     if (credentials.type === 'service_account') {
       this.logger.log('Using Service Account Credentials');
+      const scopes = ['https://www.googleapis.com/auth/drive'];
 
-      const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive.file'],
+      const auth = new google.auth.JWT({
+        email: credentials.client_email,
+        key: credentials.private_key,
+        scopes,
       });
+
+      await auth.authorize();
 
       return auth;
     }
@@ -243,6 +247,7 @@ export class GoogleDriveService {
       const response = await drive.files.create({
         requestBody: folderMetadata,
         fields: 'id, name',
+        supportsAllDrives: true,
       });
 
       this.logger.log(
@@ -299,11 +304,24 @@ export class GoogleDriveService {
         body: fileStream,
       };
 
-      const response = await drive.files.create({
-        requestBody: fileMetadata,
-        media: media,
-        fields: 'id, name, webViewLink',
-      });
+      const response = await drive.files.create(
+        {
+          requestBody: fileMetadata,
+          media: media,
+          fields: 'id, name, webViewLink',
+          uploadType: 'resumable',
+          supportsAllDrives: true,
+        },
+        {
+          timeout: 600000,
+          retry: true,
+          retryConfig: {
+            retry: 3,
+            retryDelay: 1000,
+            statusCodesToRetry: [[500, 599]],
+          },
+        }, // 10 minutes timeout with 3 retries
+      );
 
       this.logger.log(
         `✅ File uploaded from stream. File ID: ${response.data.id}`,
