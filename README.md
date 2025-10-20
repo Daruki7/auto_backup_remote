@@ -9,20 +9,23 @@ Hệ thống tự động hóa quy trình backup từ server qua SSH, nén file,
 - 🔌 **SSH Connection**: Kết nối SSH với password hoặc private key
 - 📦 **Auto Compression**: Nén folder thành ZIP hoặc TAR.GZ trên remote server
 - 💾 **Optimized Download**: Download siêu nhanh với concurrent chunks (30-40% faster) ✨ NEW
-- ☁️ **Google Drive Integration**: Upload lên Google Drive với 2 phương thức (local/direct) ✨ UPDATED
-  - **Local Method**: SSH → Local → Drive (default, có local copy)
-  - **Direct Method**: SSH → Drive trực tiếp (không cần local storage, nhanh hơn) ✨ NEW
+- ☁️ **Google Drive Integration**: Upload lên Google Drive với 4 phương thức tối ưu ✨ UPDATED
+  - **Rclone Direct**: Server → Drive trực tiếp (nhanh nhất, không cần local) ✨ NEW
+  - **gdrive Direct**: Server → Drive qua gdrive CLI (alternative direct) ✨ NEW
+  - **Optimized Streaming**: SSH → Drive qua stream (enhanced performance) ✨ NEW
+  - **Local Fallback**: SSH → Local → Drive (traditional method)
 - 📁 **Date-Based Folders**: Tự động tạo folder theo ngày: `YYYY_MM_DD-Database_ServerName` ✨ NEW
 - 🚀 **Multi-Server Backup**: Backup nhiều server song song, tiết kiệm thời gian
 - 📝 **Swagger UI**: Test API dễ dàng qua browser
 - 🧹 **Auto Cleanup**: Tự động xóa file tạm trên server
 - 🔄 **Auto Retry**: Tự động retry khi download bị lỗi (3 lần)
-- 🔁 **Auto Fallback**: Direct upload fail → tự động chuyển sang local method ✨ NEW
+- 🔁 **Intelligent Fallback**: Rclone → gdrive → Streaming → Local (4-level fallback) ✨ NEW
 - 📊 **Real-time Progress**: Hiển thị progress download realtime
 - ⚙️ **Environment Config**: Cấu hình linh hoạt qua environment variables
 - 🔔 **Discord Notifications**: Thông báo tự động qua Discord với thông tin chi tiết ✨ UPDATED
-  - Hiển thị phương pháp backup (Direct/Local)
+  - Hiển thị phương pháp backup (Rclone/gdrive/Streaming/Local)
   - Hiển thị folder Google Drive đã upload
+  - Hiển thị thời gian upload và kích thước file
 
 ## 🚀 Quick Start
 

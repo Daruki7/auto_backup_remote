@@ -6,6 +6,34 @@ import { SshConfig } from '../modules/shared/interfaces';
 export { SshConfig };
 
 /**
+ * Type aliases for better type safety
+ */
+export type CompressionType = 'zip' | 'tar.gz';
+export type UploadMethod = 'direct' | 'local';
+
+/**
+ * Google Drive Configuration Interface
+ */
+export interface GoogleDriveConfig {
+  enabled: boolean;
+  uploadMethod?: UploadMethod;
+  folderId?: string;
+  credentialsPath?: string;
+}
+
+/**
+ * Backup Steps Interface
+ * Tracks the progress of backup operations
+ */
+export interface BackupSteps {
+  sshConnection: boolean;
+  directoryCheck: boolean;
+  compression: boolean;
+  download: boolean;
+  googleDriveUpload: boolean;
+}
+
+/**
  * Backup Configuration Interface
  * Complete configuration for a backup operation
  */
@@ -14,14 +42,9 @@ export interface BackupConfig {
   sshConfig: SshConfig;
   remoteDirectory: string;
   targetFolder: string;
-  compressionType: 'zip' | 'tar.gz';
+  compressionType: CompressionType;
   localBackupPath: string;
-  googleDrive?: {
-    enabled: boolean;
-    uploadMethod?: 'direct' | 'local';
-    folderId?: string;
-    credentialsPath?: string;
-  };
+  googleDrive?: GoogleDriveConfig;
 }
 
 /**

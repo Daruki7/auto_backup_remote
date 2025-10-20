@@ -304,28 +304,40 @@ export class GoogleDriveService {
         body: fileStream,
       };
 
-      const response = await drive.files.create(
-        {
-          requestBody: fileMetadata,
-          media: media,
-          fields: 'id, name, webViewLink',
-          uploadType: 'resumable',
-          supportsAllDrives: true,
+      // Enhanced upload options for better performance
+      const uploadOptions = {
+        requestBody: fileMetadata,
+        media: media,
+        fields: 'id, name, webViewLink, size',
+        uploadType: 'resumable' as const,
+        supportsAllDrives: true,
+        // Optimized for large files
+        chunkSize: 256 * 1024, // 256KB chunks
+      };
+
+      // Enhanced retry configuration
+      const retryConfig = {
+        timeout: 900000, // 15 minutes timeout
+        retry: true,
+        retryConfig: {
+          retry: 5, // Increased retry attempts
+          retryDelay: 2000, // 2 second delay
+          statusCodesToRetry: [
+            [408, 408], // Request timeout
+            [429, 429], // Too many requests
+            [500, 599], // Server errors
+          ],
         },
-        {
-          timeout: 600000,
-          retry: true,
-          retryConfig: {
-            retry: 3,
-            retryDelay: 1000,
-            statusCodesToRetry: [[500, 599]],
-          },
-        }, // 10 minutes timeout with 3 retries
-      );
+      };
+
+      const startTime = Date.now();
+      const response = await drive.files.create(uploadOptions, retryConfig);
+      const uploadTime = (Date.now() - startTime) / 1000;
 
       this.logger.log(
-        `✅ File uploaded from stream. File ID: ${response.data.id}`,
+        `✅ Optimized stream upload successful. File ID: ${response.data.id}`,
       );
+      this.logger.log(`⏱️ Upload time: ${uploadTime.toFixed(2)}s`);
       if (response.data.webViewLink) {
         this.logger.log(`📎 Web view link: ${response.data.webViewLink}`);
       }
@@ -333,6 +345,103 @@ export class GoogleDriveService {
       return response.data.id;
     } catch (error) {
       this.logger.error(`Upload from stream failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Upload large file with optimized settings for 50GB+ files
+   * @param fileStream Readable stream of the large file
+   * @param fileName Name of the file
+   * @param mimeType MIME type of the file
+   * @param folderId Google Drive folder ID
+   * @param credentialsPath Path to credentials file
+   * @param chunkSize Optimal chunk size for large files
+   * @returns Google Drive file ID
+   */
+  async uploadFromStreamWithLargeFileOptimization(
+    fileStream: any,
+    fileName: string,
+    mimeType: string,
+    folderId?: string,
+    credentialsPath?: string,
+    chunkSize: number = 4 * 1024 * 1024, // 4MB default for large files
+  ): Promise<string> {
+    try {
+      const finalCredentialsPath =
+        credentialsPath ||
+        this.configService.get<string>('googleDrive.credentialsPath');
+
+      this.logger.log(
+        `🚀 Large file optimized upload to Google Drive: ${fileName}`,
+      );
+      this.logger.log(
+        `📊 Chunk size: ${(chunkSize / 1024 / 1024).toFixed(2)}MB`,
+      );
+
+      const credentials = JSON.parse(
+        fs.readFileSync(finalCredentialsPath, 'utf8'),
+      );
+      const auth = await this.createAuthClient(credentials);
+      const drive = google.drive({ version: 'v3', auth });
+
+      const fileMetadata: any = {
+        name: fileName,
+      };
+
+      if (folderId) {
+        fileMetadata.parents = [folderId];
+      }
+
+      // Optimized media configuration for large files
+      const media = {
+        mimeType: mimeType,
+        body: fileStream,
+      };
+
+      // Enhanced upload options for large files
+      const uploadOptions = {
+        requestBody: fileMetadata,
+        media: media,
+        fields: 'id, name, webViewLink, size',
+        uploadType: 'resumable' as const,
+        supportsAllDrives: true,
+        // Large file optimizations
+        chunkSize: chunkSize,
+      };
+
+      // Enhanced retry configuration for large files
+      const retryConfig = {
+        timeout: 1800000, // 30 minutes timeout for large files
+        retry: true,
+        retryConfig: {
+          retry: 10, // More retry attempts for large files
+          retryDelay: 5000, // 5 second delay
+          statusCodesToRetry: [
+            [408, 408], // Request timeout
+            [429, 429], // Too many requests
+            [500, 599], // Server errors
+          ],
+        },
+      };
+
+      const startTime = Date.now();
+      const response = await drive.files.create(uploadOptions, retryConfig);
+      const uploadTime = (Date.now() - startTime) / 1000;
+
+      this.logger.log(
+        `✅ Large file upload successful. File ID: ${response.data.id}`,
+      );
+      this.logger.log(
+        `⏱️ Upload time: ${uploadTime.toFixed(2)}s (${(uploadTime / 60).toFixed(2)} minutes)`,
+      );
+      if (response.data.webViewLink) {
+        this.logger.log(`📎 Web view link: ${response.data.webViewLink}`);
+      }
+
+      return response.data.id;
+    } catch (error) {
+      this.logger.error(`❌ Large file upload failed: ${error.message}`);
       throw error;
     }
   }

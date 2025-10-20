@@ -1,11 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SshCommandService, SftpClientService } from '../../shared/services';
+import {
+  SshCommandService,
+  SftpClientService,
+  HybridUploadService,
+} from '../../shared/services';
 import { CompressionService } from './compression.service';
 import { FileTransferService } from './file-transfer.service';
 import { GoogleDriveService } from '../../google-drive/services/google-drive.service';
 import { DiscordService } from '../../notifications/services/discord.service';
 import { BackupConfig } from '../../../config/backup.config';
 import * as path from 'path';
+
+import { BackupSteps } from '../../../config/backup.config';
 
 /**
  * Backup Result Interface
@@ -18,13 +24,7 @@ export interface BackupResult {
   googleDriveFileId?: string;
   fileSize?: number;
   error?: string;
-  steps: {
-    sshConnection: boolean;
-    directoryCheck: boolean;
-    compression: boolean;
-    download: boolean;
-    googleDriveUpload: boolean;
-  };
+  steps: BackupSteps;
 }
 
 /**
@@ -43,6 +43,7 @@ export class BackupService {
     private readonly fileTransferService: FileTransferService,
     private readonly googleDriveService: GoogleDriveService,
     private readonly discordService: DiscordService,
+    private readonly hybridUploadService: HybridUploadService,
   ) {}
 
   /**
@@ -152,10 +153,10 @@ export class BackupService {
 
       if (shouldUploadToGoogleDrive && uploadMethod === 'direct') {
         // ==========================================
-        // CASE 1: DIRECT METHOD (SSH → Drive, NO local download)
+        // CASE 1: HYBRID DIRECT METHOD (True Direct + Fallbacks)
         // ==========================================
         this.logger.log(
-          `[${config.serverName}] 🚀 Direct upload mode: SSH → Google Drive (no local download)`,
+          `[${config.serverName}] 🚀 Hybrid direct upload mode: True Direct → Streaming → Local`,
         );
 
         try {
@@ -167,79 +168,41 @@ export class BackupService {
             config.googleDrive?.folderId ||
             this.googleDriveService.getDefaultFolderId();
 
-          // Get read stream from SSH (no local storage)
-          const { stream, client, fileSize } =
-            await this.sftpClientService.getReadStream(
-              config.sshConfig,
-              remoteCompressedFile,
-            );
+          // Use hybrid upload service with intelligent fallback
+          const uploadResult = await this.hybridUploadService.uploadWithHybrid(
+            config.sshConfig,
+            remoteCompressedFile,
+            {
+              credentialsPath,
+              folderId: parentFolderId,
+              serverName: config.serverName,
+            },
+          );
 
-          fileSizeMB = fileSize / (1024 * 1024);
+          result.googleDriveFileId = uploadResult.fileId;
+          result.steps.googleDriveUpload = true;
+          result.steps.download = true; // Mark as complete
+          fileSizeMB = uploadResult.fileSize / (1024 * 1024);
           result.fileSize = fileSizeMB;
 
-          try {
-            // Create date-based folder in Google Drive
-            const folderId = await this.googleDriveService.createDateFolder(
-              config.serverName,
-              credentialsPath,
-              parentFolderId,
-            );
+          // Update Discord notification with upload method
+          googleDriveFolderName = uploadResult.folderName;
 
-            // Upload directly from stream to Google Drive
-            const fileName = path.basename(remoteCompressedFile);
-            const mimeType =
-              this.googleDriveService.getMimeTypeFromFilename(fileName);
-            const fileId = await this.googleDriveService.uploadFromStream(
-              stream,
-              fileName,
-              mimeType,
-              folderId,
-              credentialsPath,
-            );
- 
-            result.googleDriveFileId = fileId;
-            result.steps.googleDriveUpload = true;
-            result.steps.download = true; // Mark as complete (streamed, not downloaded)
-
-            this.logger.log(
-              `[${config.serverName}] ✅ Direct upload successful: ${fileId} (${fileSizeMB.toFixed(2)} MB)`,
-            );
-            this.logger.log(
-              `[${config.serverName}] ℹ️  No local file saved (direct stream to Drive)`,
-            );
-          } finally {
-            // Always close the SFTP client
-            try {
-              await client.end();
-            } catch (endError) {
-              this.logger.warn(
-                `Failed to close SFTP client: ${endError.message}`,
-              );
-            }
-          }
+          this.logger.log(
+            `[${config.serverName}] ✅ Hybrid upload successful: ${uploadResult.method} method`,
+          );
+          this.logger.log(
+            `[${config.serverName}] 📊 Upload time: ${uploadResult.uploadTime.toFixed(2)}s`,
+          );
+          this.logger.log(
+            `[${config.serverName}] 📁 Folder: ${uploadResult.folderName}`,
+          );
         } catch (error) {
-          // Fallback: If direct upload fails, download to local and try again
-          // this.logger.warn(
-          //   `[${config.serverName}] ⚠️  Direct upload failed: ${error.message}`,
-          // );
-          // this.logger.warn(
-          //   `[${config.serverName}] 🔄 Falling back to local method...`,
-          // );
-          // // Download to local as fallback
-          // localFilePath =
-          //   await this.fileTransferService.downloadAndOrganizeFile(
-          //     config.sshConfig,
-          //     remoteCompressedFile,
-          //     config.localBackupPath,
-          //     config.serverName,
-          //   );
-          // result.localFilePath = localFilePath;
-          // result.steps.download = true;
-          // fileSizeMB = this.fileTransferService.getFileSizeMB(localFilePath);
-          // result.fileSize = fileSizeMB;
-          // this.logger.log(
-          //   `[${config.serverName}] Fallback download complete: ${localFilePath}`,
-          // );
+          // Hybrid upload failed - throw error to be handled by outer catch
+          this.logger.error(
+            `[${config.serverName}] ❌ All hybrid upload methods failed: ${error.message}`,
+          );
+          throw error;
         }
       } else if (shouldUploadToGoogleDrive && uploadMethod === 'local') {
         // ==========================================
