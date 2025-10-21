@@ -1,4 +1,4 @@
-# 🔄 Auto Backup Thomi - Hệ Thống Backup Server Tự Động
+# 🔄 Auto Backup - Backup Server Tự Động
 
 > **✨ LATEST**: Tối ưu cho file lớn 50GB+ với Rclone direct upload và intelligent fallback
 
@@ -1328,3 +1328,4 @@ UNLICENSED
 **🚀 Optimized for**: Large files (50GB+) | Multi-server | Production workloads
 
 **Last Updated**: October 21, 2025 | Version 2.3.0
+
