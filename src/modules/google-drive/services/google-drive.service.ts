@@ -72,6 +72,7 @@ export class GoogleDriveService {
         requestBody: fileMetadata,
         media: media,
         fields: 'id, name, webViewLink',
+        supportsAllDrives: true,
       });
 
       this.logger.log(

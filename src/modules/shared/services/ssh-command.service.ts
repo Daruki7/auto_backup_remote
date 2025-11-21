@@ -150,7 +150,7 @@ export class SshCommandService {
       port: sshConfig.port || 22,
       username: sshConfig.username,
       readyTimeout: 30000,
-      keepaliveInterval: 10000,
+      keepaliveInterval: 100000,
       keepaliveCountMax: 3,
     };
 

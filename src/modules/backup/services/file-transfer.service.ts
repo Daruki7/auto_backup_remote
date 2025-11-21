@@ -41,32 +41,31 @@ export class FileTransferService {
     const serverBackupPath = path.join(localBackupPath, serverName);
     const dateFolderPath = path.join(serverBackupPath, dateFolderName);
 
-    // Ensure date-specific backup directory exists
+    // Ensure date-specific backup directory exists (create early to avoid delays)
     if (!fs.existsSync(dateFolderPath)) {
       fs.mkdirSync(dateFolderPath, { recursive: true });
-      this.logger.log(`Created backup directory: ${dateFolderPath}`);
+      this.logger.log(`✅ Created backup directory: ${dateFolderPath}`);
     }
 
     // Keep original filename from server (e.g., uploads.tar.gz)
     const remoteFileName = remoteFilePath.split('/').pop();
     const localFilePath = path.join(dateFolderPath, remoteFileName);
 
-    this.logger.log(
-      `Downloading file from ${remoteFilePath} to ${localFilePath}`,
-    );
+    this.logger.log(`🚀 Starting optimized download from ${remoteFilePath}`);
+    this.logger.log(`📁 Destination: ${localFilePath}`);
 
     try {
-      // Download using optimized SFTP client with progress tracking
+      // Download using optimized SFTP client with adaptive settings
+      // Settings are auto-tuned based on file size for maximum performance
       const result: DownloadResult = await this.sftpClientService.downloadFile(
         sshConfig,
         remoteFilePath,
         localFilePath,
         {
-          concurrency: 64, // Concurrent chunk downloads
-          chunkSize: 65536, // 64KB chunks
+          // Let SFTP service determine optimal settings based on file size
+          // You can override here if needed, but auto-tuning is recommended
           onProgress: (transferred, chunk, total) => {
-            const progress = ((transferred / total) * 100).toFixed(1);
-            // Progress is logged by SFTP client service
+            // Progress is logged by SFTP client service with throttling
           },
         },
       );
@@ -82,13 +81,27 @@ export class FileTransferService {
       // If the downloaded file has a different name, rename it
       if (localFilePath !== cleanFilePath && fs.existsSync(localFilePath)) {
         fs.renameSync(localFilePath, cleanFilePath);
-        this.logger.log(`File renamed: ${remoteFileName} → ${cleanFileName}`);
+        this.logger.log(
+          `📝 File renamed: ${remoteFileName} → ${cleanFileName}`,
+        );
       }
 
-      this.logger.log(`File downloaded: ${cleanFileName}`);
-      this.logger.log(`Saved to folder: ${dateFolderName}`);
+      // Calculate additional metrics
+      const fileSizeMB = result.fileSize / (1024 * 1024);
+      const fileSizeGB = fileSizeMB / 1024;
+      const durationMinutes = result.duration / 60;
+
+      this.logger.log(`✅ File downloaded: ${cleanFileName}`);
+      this.logger.log(`📁 Saved to folder: ${dateFolderName}`);
+      this.logger.log(`📊 Performance Summary:`);
       this.logger.log(
-        `Performance: ${result.averageSpeed.toFixed(2)} MB/s, Duration: ${result.duration.toFixed(1)}s`,
+        `   • File size: ${fileSizeGB >= 1 ? fileSizeGB.toFixed(2) + ' GB' : fileSizeMB.toFixed(2) + ' MB'}`,
+      );
+      this.logger.log(
+        `   • Duration: ${durationMinutes >= 1 ? durationMinutes.toFixed(2) + ' minutes' : result.duration.toFixed(1) + ' seconds'}`,
+      );
+      this.logger.log(
+        `   • Average speed: ${result.averageSpeed.toFixed(2)} MB/s`,
       );
 
       return cleanFilePath;

@@ -43,12 +43,7 @@ export class HybridUploadService {
   ): Promise<{
     fileId: string;
     folderName: string;
-    method:
-      | 'rclone'
-      | 'gdrive'
-      | 'streaming'
-      | 'local'
-      | 'large-file-optimized';
+    method: 'rclone' | 'local' | 'large-file-optimized';
     uploadTime: number;
     fileSize: number;
   }> {
@@ -64,7 +59,7 @@ export class HybridUploadService {
     );
 
     // For files larger than 10GB, use large file optimization
-    if (fileSizeGB > 10) {
+    if (fileSizeGB > 1) {
       this.logger.log(
         `[${googleDriveConfig.serverName}] 🚀 Large file detected (${fileSizeGB.toFixed(2)}GB), using large file optimization...`,
       );
@@ -142,80 +137,7 @@ export class HybridUploadService {
       );
     }
 
-    // Method 2: Try gdrive direct upload
-    try {
-      this.logger.log(
-        `[${googleDriveConfig.serverName}] 🚀 Attempting gdrive direct upload...`,
-      );
-
-      const isGdriveAvailable =
-        await this.directUploadService.isGdriveAvailable(sshConfig);
-
-      if (isGdriveAvailable) {
-        const result = await this.directUploadService.uploadWithGdrive(
-          sshConfig,
-          remoteFilePath,
-          googleDriveConfig,
-        );
-
-        const uploadTime = (Date.now() - startTime) / 1000;
-        const fileSize = await this.getRemoteFileSize(
-          sshConfig,
-          remoteFilePath,
-        );
-
-        this.logger.log(
-          `[${googleDriveConfig.serverName}] ✅ gdrive direct upload successful in ${uploadTime.toFixed(2)}s`,
-        );
-
-        return {
-          ...result,
-          uploadTime,
-          fileSize,
-        };
-      } else {
-        this.logger.log(
-          `[${googleDriveConfig.serverName}] ⚠️ gdrive not available, trying streaming...`,
-        );
-      }
-    } catch (error) {
-      lastError = error as Error;
-      this.logger.warn(
-        `[${googleDriveConfig.serverName}] ❌ gdrive upload failed: ${error.message}`,
-      );
-    }
-
-    // Method 3: Try optimized streaming upload
-    try {
-      this.logger.log(
-        `[${googleDriveConfig.serverName}] 🚀 Attempting optimized streaming upload...`,
-      );
-
-      const result = await this.uploadWithStreaming(
-        sshConfig,
-        remoteFilePath,
-        googleDriveConfig,
-      );
-
-      const uploadTime = (Date.now() - startTime) / 1000;
-
-      this.logger.log(
-        `[${googleDriveConfig.serverName}] ✅ Streaming upload successful in ${uploadTime.toFixed(2)}s`,
-      );
-
-      return {
-        ...result,
-        uploadTime,
-        fileSize: result.fileSize,
-      };
-    } catch (error) {
-      lastError = error as Error;
-      this.logger.warn(
-        `[${googleDriveConfig.serverName}] ❌ Streaming upload failed: ${error.message}`,
-      );
-    }
-
-    // Method 4: Fallback to local download + upload
+    // Method 2: Fallback to local download + upload
     try {
       this.logger.log(
         `[${googleDriveConfig.serverName}] 🚀 Attempting local download + upload fallback...`,

@@ -4,6 +4,7 @@ import { SftpClientService } from './services/sftp-client.service';
 import { DirectUploadService } from './services/direct-upload.service';
 import { HybridUploadService } from './services/hybrid-upload.service';
 import { LargeFileUploadService } from './services/large-file-upload.service';
+import { GoogleDriveService } from '../google-drive/services/google-drive.service';
 
 /**
  * Shared Module
@@ -20,6 +21,7 @@ import { LargeFileUploadService } from './services/large-file-upload.service';
     DirectUploadService,
     HybridUploadService,
     LargeFileUploadService,
+    GoogleDriveService,
   ],
   exports: [
     SshCommandService,

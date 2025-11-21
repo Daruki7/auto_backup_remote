@@ -39,7 +39,7 @@ export class LargeFileUploadService {
   ): Promise<{
     fileId: string;
     folderName: string;
-    method: 'rclone' | 'gdrive' | 'optimized-streaming' | 'chunked-streaming';
+    method: 'rclone' | 'optimized-streaming' | 'chunked-streaming';
     uploadTime: number;
     fileSize: number;
     chunksProcessed: number;
@@ -92,44 +92,7 @@ export class LargeFileUploadService {
       );
     }
 
-    // Strategy 2: Try gdrive CLI (good for large files)
-    try {
-      this.logger.log(
-        `[${googleDriveConfig.serverName}] 🚀 Attempting gdrive for large file...`,
-      );
-
-      const isGdriveAvailable = await this.sshCommandService.executeCommand(
-        sshConfig,
-        'which gdrive',
-      );
-
-      if (isGdriveAvailable.trim()) {
-        const result = await this.uploadWithGdriveLarge(
-          sshConfig,
-          remoteFilePath,
-          googleDriveConfig,
-        );
-
-        const uploadTime = (Date.now() - startTime) / 1000;
-        this.logger.log(
-          `[${googleDriveConfig.serverName}] ✅ gdrive large file upload successful in ${uploadTime.toFixed(2)}s`,
-        );
-
-        return {
-          ...result,
-          uploadTime,
-          fileSize,
-          chunksProcessed: 1, // gdrive handles as single operation
-        };
-      }
-    } catch (error) {
-      lastError = error as Error;
-      this.logger.warn(
-        `[${googleDriveConfig.serverName}] ❌ gdrive large file upload failed: ${error.message}`,
-      );
-    }
-
-    // Strategy 3: Optimized streaming for large files
+    // Strategy 2: Optimized streaming for large files
     try {
       this.logger.log(
         `[${googleDriveConfig.serverName}] 🚀 Attempting optimized streaming for large file...`,
@@ -160,7 +123,7 @@ export class LargeFileUploadService {
       );
     }
 
-    // Strategy 4: Chunked streaming (last resort for very large files)
+    // Strategy 3: Chunked streaming (last resort for very large files)
     try {
       this.logger.log(
         `[${googleDriveConfig.serverName}] 🚀 Attempting chunked streaming for very large file...`,
@@ -199,6 +162,7 @@ export class LargeFileUploadService {
 
   /**
    * Upload large file using Rclone with optimized settings
+   * Uses existing rclone config on server (assumes "gdrive" remote is already configured)
    */
   private async uploadWithRcloneLarge(
     sshConfig: SshConfig,
@@ -220,25 +184,42 @@ export class LargeFileUploadService {
     const day = String(date.getDate()).padStart(2, '0');
     const folderName = `${year}_${month}_${day}-Database_${googleDriveConfig.serverName}`;
 
-    // Create Rclone config for large files
-    const rcloneConfig = await this.createRcloneConfigForLargeFiles(
-      sshConfig,
-      googleDriveConfig.credentialsPath,
+    // Use existing rclone remote (assumes "gdrive" is already configured on server)
+    const rcloneRemote = 'gdrive';
+
+    this.logger.log(
+      `[${googleDriveConfig.serverName}] 📂 Using existing rclone remote: ${rcloneRemote}`,
     );
 
-    // Create folder in Google Drive
-    const folderId = await this.createRemoteFolderForLargeFiles(
-      sshConfig,
-      folderName,
-      googleDriveConfig.folderId,
-      rcloneConfig,
+    // Create folder in Google Drive using rclone
+    const createFolderCommand = googleDriveConfig.folderId
+      ? `rclone mkdir ${rcloneRemote}:${folderName} --drive-root-folder-id ${googleDriveConfig.folderId}`
+      : `rclone mkdir ${rcloneRemote}:${folderName}`;
+
+    this.logger.log(
+      `[${googleDriveConfig.serverName}] 📁 Creating folder in Google Drive: ${folderName}`,
     );
 
-    // Upload with large file optimizations
-    const fileName = remoteFilePath.split('/').pop() || 'large-backup';
+    try {
+      await this.sshCommandService.executeCommand(
+        sshConfig,
+        createFolderCommand,
+      );
+      this.logger.log(
+        `[${googleDriveConfig.serverName}] ✅ Folder created successfully`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[${googleDriveConfig.serverName}] ⚠️ Folder might already exist or creation failed: ${error.message}`,
+      );
+    }
+
+    // Upload file to Google Drive with large file optimizations
     const uploadCommand = `
-      rclone copy "${remoteFilePath}" ${rcloneConfig}:${folderId}/ \
+      rclone copy "${remoteFilePath}" ${rcloneRemote}:${folderName}/ \
+        --verbose \
         --progress \
+        --stats 10s \
         --transfers 1 \
         --buffer-size 16M \
         --use-mmap \
@@ -248,69 +229,15 @@ export class LargeFileUploadService {
         --low-level-retries 10
     `;
 
+    this.logger.log(
+      `[${googleDriveConfig.serverName}] 📤 Starting rclone upload to folder: ${folderName}`,
+    );
     await this.sshCommandService.executeCommand(sshConfig, uploadCommand);
 
     return {
       fileId: `rclone_${Date.now()}`,
       folderName,
       method: 'rclone',
-    };
-  }
-
-  /**
-   * Upload large file using gdrive CLI with optimized settings
-   */
-  private async uploadWithGdriveLarge(
-    sshConfig: SshConfig,
-    remoteFilePath: string,
-    googleDriveConfig: {
-      credentialsPath: string;
-      folderId?: string;
-      serverName: string;
-    },
-  ): Promise<{
-    fileId: string;
-    folderName: string;
-    method: 'gdrive';
-  }> {
-    // Generate date-based folder name
-    const date = new Date();
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const folderName = `${year}_${month}_${day}-Database_${googleDriveConfig.serverName}`;
-
-    // Setup gdrive authentication
-    await this.setupGdriveAuthForLargeFiles(
-      sshConfig,
-      googleDriveConfig.credentialsPath,
-    );
-
-    // Create folder
-    const folderId = await this.createFolderWithGdriveForLargeFiles(
-      sshConfig,
-      folderName,
-      googleDriveConfig.folderId,
-    );
-
-    // Upload with large file optimizations
-    const uploadCommand = `
-      gdrive upload --parent ${folderId} "${remoteFilePath}" --chunksize 1048576
-    `;
-
-    const result = await this.sshCommandService.executeCommand(
-      sshConfig,
-      uploadCommand,
-    );
-
-    // Extract file ID
-    const fileIdMatch = result.match(/Uploaded (.*) at/);
-    const fileId = fileIdMatch ? fileIdMatch[1] : `gdrive_${Date.now()}`;
-
-    return {
-      fileId,
-      folderName,
-      method: 'gdrive',
     };
   }
 
@@ -457,99 +384,5 @@ export class LargeFileUploadService {
       this.logger.warn(`Failed to get remote file size: ${error.message}`);
       return 0;
     }
-  }
-
-  /**
-   * Create Rclone config optimized for large files
-   */
-  private async createRcloneConfigForLargeFiles(
-    sshConfig: SshConfig,
-    credentialsPath: string,
-  ): Promise<string> {
-    const configName = 'gdrive-large';
-    const credentials = JSON.parse(
-      require('fs').readFileSync(credentialsPath, 'utf8'),
-    );
-
-    const rcloneConfig = `
-[${configName}]
-type = drive
-client_id = ${credentials.client_id}
-client_secret = ${credentials.client_secret}
-scope = drive
-token = {"access_token":"${credentials.access_token}","token_type":"Bearer","refresh_token":"${credentials.refresh_token}","expiry":"${credentials.expiry}"}
-`;
-
-    const configCommand = `cat > ~/.config/rclone/rclone.conf << 'EOF'
-${rcloneConfig}
-EOF`;
-
-    await this.sshCommandService.executeCommand(sshConfig, configCommand);
-    return configName;
-  }
-
-  /**
-   * Create remote folder for large files
-   */
-  private async createRemoteFolderForLargeFiles(
-    sshConfig: SshConfig,
-    folderName: string,
-    parentFolderId: string | undefined,
-    rcloneConfig: string,
-  ): Promise<string> {
-    const parentPath = parentFolderId
-      ? `--drive-root-folder-id ${parentFolderId}`
-      : '';
-
-    const createFolderCommand = `
-      rclone mkdir ${rcloneConfig}:${folderName} ${parentPath}
-    `;
-
-    await this.sshCommandService.executeCommand(sshConfig, createFolderCommand);
-    return folderName;
-  }
-
-  /**
-   * Setup gdrive authentication for large files
-   */
-  private async setupGdriveAuthForLargeFiles(
-    sshConfig: SshConfig,
-    credentialsPath: string,
-  ): Promise<void> {
-    const credentials = JSON.parse(
-      require('fs').readFileSync(credentialsPath, 'utf8'),
-    );
-
-    const authCommand = `
-      mkdir -p ~/.gdrive
-      cat > ~/.gdrive/credentials.json << 'EOF'
-${JSON.stringify(credentials)}
-EOF
-    `;
-
-    await this.sshCommandService.executeCommand(sshConfig, authCommand);
-  }
-
-  /**
-   * Create folder with gdrive for large files
-   */
-  private async createFolderWithGdriveForLargeFiles(
-    sshConfig: SshConfig,
-    folderName: string,
-    parentFolderId: string | undefined,
-  ): Promise<string> {
-    const parentParam = parentFolderId ? `--parent ${parentFolderId}` : '';
-
-    const createFolderCommand = `
-      gdrive mkdir ${parentParam} "${folderName}"
-    `;
-
-    const result = await this.sshCommandService.executeCommand(
-      sshConfig,
-      createFolderCommand,
-    );
-
-    const folderIdMatch = result.match(/Created folder (.*)/);
-    return folderIdMatch ? folderIdMatch[1] : folderName;
   }
 }

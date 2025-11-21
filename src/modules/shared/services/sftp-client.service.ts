@@ -40,49 +40,64 @@ export class SftpClientService {
     const startTime = Date.now();
     const client = new SftpClient();
 
-    // Default options with performance optimizations
-    const downloadOptions = {
-      concurrency: options?.concurrency || 64,
-      chunkSize: options?.chunkSize || 65536, // 64KB
-      retryAttempts: options?.retryAttempts || 3,
-      retryDelay: options?.retryDelay || 2000,
-    };
-
     try {
       // Connect with optimized configuration
       await client.connect(this.buildConnectionConfig(sshConfig));
       this.logger.log(`SFTP connected to ${sshConfig.host}`);
 
-      // Get file size for metrics
+      // Get file size for metrics and adaptive optimization
       const stats = await client.stat(remotePath);
       const fileSize = stats.size;
+      const fileSizeGB = fileSize / (1024 * 1024 * 1024);
+
       this.logger.log(
-        `Downloading: ${(fileSize / (1024 * 1024)).toFixed(2)} MB`,
+        `📥 Downloading: ${(fileSize / (1024 * 1024)).toFixed(2)} MB`,
       );
+
+      // Adaptive optimization based on file size
+      const optimizedOptions = this.getOptimizedDownloadSettings(
+        fileSize,
+        options,
+      );
+
+      this.logger.log(
+        `🚀 Optimized settings: ${optimizedOptions.concurrency} concurrent connections, ${(optimizedOptions.chunkSize / 1024).toFixed(0)}KB chunks`,
+      );
+
+      // Progress tracking with throttling to avoid performance impact
+      let lastProgressLog = 0;
+      const progressInterval = 5000; // Log every 5 seconds max
 
       // Download with retry logic
       await this.executeWithRetry(
         async () => {
           await client.fastGet(remotePath, localPath, {
-            concurrency: downloadOptions.concurrency,
-            chunkSize: downloadOptions.chunkSize,
+            concurrency: optimizedOptions.concurrency,
+            chunkSize: optimizedOptions.chunkSize,
             step: (transferred: number, chunk: number, total: number) => {
               if (options?.onProgress) {
                 options.onProgress(transferred, chunk, total);
               }
 
-              // Log progress every 10%
-              const progress = (transferred / total) * 100;
-              if (Math.floor(progress) % 10 === 0) {
-                this.logger.debug(
-                  `Progress: ${progress.toFixed(1)}% (${(transferred / (1024 * 1024)).toFixed(2)} MB)`,
+              // Throttled progress logging
+              const now = Date.now();
+              if (now - lastProgressLog >= progressInterval) {
+                const progress = (transferred / total) * 100;
+                const transferredMB = transferred / (1024 * 1024);
+                const totalMB = total / (1024 * 1024);
+                const elapsed = (now - startTime) / 1000;
+                const currentSpeed = transferredMB / elapsed;
+
+                this.logger.log(
+                  `📊 Progress: ${progress.toFixed(1)}% | ${transferredMB.toFixed(2)}/${totalMB.toFixed(2)} MB | Speed: ${currentSpeed.toFixed(2)} MB/s`,
                 );
+                lastProgressLog = now;
               }
             },
           });
         },
-        downloadOptions.retryAttempts,
-        downloadOptions.retryDelay,
+        optimizedOptions.retryAttempts,
+        optimizedOptions.retryDelay,
       );
 
       await client.end();
@@ -120,6 +135,60 @@ export class SftpClientService {
         error: error.message,
       };
     }
+  }
+
+  /**
+   * Get optimized download settings based on file size
+   * Larger files get more aggressive parallelization
+   * @param fileSize File size in bytes
+   * @param userOptions User-provided options (override defaults)
+   * @returns Optimized download options
+   */
+  private getOptimizedDownloadSettings(
+    fileSize: number,
+    userOptions?: DownloadOptions,
+  ): {
+    concurrency: number;
+    chunkSize: number;
+    retryAttempts: number;
+    retryDelay: number;
+  } {
+    const fileSizeMB = fileSize / (1024 * 1024);
+    const fileSizeGB = fileSizeMB / 1024;
+
+    let concurrency: number;
+    let chunkSize: number;
+
+    // Adaptive settings based on file size
+    if (fileSizeGB < 0.1) {
+      // < 100MB: Standard settings
+      concurrency = 32;
+      chunkSize = 65536; // 64KB
+    } else if (fileSizeGB < 1) {
+      // 100MB - 1GB: Increased parallelization
+      concurrency = 64;
+      chunkSize = 131072; // 128KB
+    } else if (fileSizeGB < 5) {
+      // 1GB - 5GB: High performance
+      concurrency = 96;
+      chunkSize = 262144; // 256KB
+    } else if (fileSizeGB < 10) {
+      // 5GB - 10GB: Maximum parallelization
+      concurrency = 128;
+      chunkSize = 524288; // 512KB
+    } else {
+      // > 10GB: Ultra high performance
+      concurrency = 160;
+      chunkSize = 1048576; // 1MB
+    }
+
+    // User options override defaults
+    return {
+      concurrency: userOptions?.concurrency || concurrency,
+      chunkSize: userOptions?.chunkSize || chunkSize,
+      retryAttempts: userOptions?.retryAttempts || 5, // Increased retries for large files
+      retryDelay: userOptions?.retryDelay || 3000, // 3 second delay
+    };
   }
 
   /**
@@ -290,13 +359,13 @@ export class SftpClientService {
       host: sshConfig.host,
       port: sshConfig.port || 22,
       username: sshConfig.username,
-      readyTimeout: 30000,
-      keepaliveInterval: 10000,
-      keepaliveCountMax: 10,
+      readyTimeout: 60000, // 60s for large file initial handshake
+      keepaliveInterval: 5000, // Send keepalive every 5s (more frequent)
+      keepaliveCountMax: 20, // Allow more keepalive failures before disconnect
       // Performance-optimized algorithms
       algorithms: {
         cipher: [
-          'aes128-gcm@openssh.com', // Fastest cipher
+          'aes128-gcm@openssh.com', // Fastest cipher with hardware acceleration
           'aes128-ctr',
           'aes192-ctr',
           'aes256-ctr',
@@ -310,13 +379,15 @@ export class SftpClientService {
           'rsa-sha2-256',
         ],
         hmac: [
-          'hmac-sha2-256-etm@openssh.com', // Fastest HMAC
+          'hmac-sha2-256-etm@openssh.com', // Fastest HMAC with encrypt-then-mac
           'hmac-sha2-512-etm@openssh.com',
           'hmac-sha2-256',
           'hmac-sha2-512',
         ],
         compress: ['none'], // No compression for already compressed files
       },
+      // Advanced TCP settings for large file transfers
+      debug: undefined, // Disable debug for performance
     };
 
     if (sshConfig.password) {
